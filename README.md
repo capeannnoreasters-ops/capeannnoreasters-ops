@@ -1,4 +1,4 @@
-# Cape Ann Nor'easters — Football Squares 
+# Cape Ann Nor'easters — Football Squares
 
 Static site (no build tools). Includes:
 - Multi-board manager (create/switch/delete)
