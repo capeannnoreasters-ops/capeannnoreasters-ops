@@ -1,1 +1,155 @@
-<script type="module" src="./assets/public.js"></script>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cape Ann Nor’easters — Football Squares</title>
+
+    <!-- Favicon -->
+    <link rel="icon" href="./assets/logo-wordmark.png" type="image/png" />
+
+    <!-- Minimal reset and layout -->
+    <style>
+      :root {
+        --brand: #1e3a8a;
+        --brand-light: #60a5fa;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --border: #e2e8f0;
+        --ink: #0f172a;
+        --muted: #475569;
+        --accent: #22c55e;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      header img { height: 60px; }
+      h1 {
+        margin: 0;
+        font-size: 1.6rem;
+        color: var(--brand);
+      }
+      h2 {
+        margin: 1.4em 0 0.5em;
+        color: var(--brand);
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 14px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+        margin-bottom: 20px;
+      }
+      .board {
+        display: grid;
+        grid-template-columns: 80px repeat(10, 1fr);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .cell {
+        border: 1px solid var(--border);
+        min-width: 60px;
+        min-height: 50px;
+        font-size: 13px;
+        padding: 4px;
+        text-align: center;
+        cursor: pointer;
+      }
+      .cell.header {
+        background: #f1f5f9;
+        font-weight: 600;
+      }
+      .cell.pending {
+        background: #fef3c7;
+      }
+      .cell.paid {
+        background: #dcfce7;
+      }
+      .rules ul {
+        margin: 0.5em 0 0 1.2em;
+      }
+      button {
+        background: var(--brand);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--brand-light);
+      }
+      footer {
+        text-align: center;
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-top: 2em;
+      }
+      @media (max-width: 700px) {
+        .board { overflow-x: auto; display: block; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <header>
+        <img src="./assets/logo-full.png" alt="Cape Ann Nor’easters Logo"
+             onerror="this.style.display='none'" />
+        <div>
+          <h1>Cape Ann Nor’easters — Football Squares</h1>
+          <div style="font-size:0.9rem; color:var(--muted);">
+            Support the team and win prizes every quarter!
+          </div>
+        </div>
+      </header>
+
+      <!-- Board info and grid -->
+      <div id="board-container" class="card">
+        <div id="board-info">
+          <h2 id="board-title">Loading...</h2>
+          <div id="board-meta"></div>
+        </div>
+
+        <div id="board-grid" class="board"></div>
+      </div>
+
+      <!-- Rules and instructions -->
+      <div class="card rules">
+        <h2>How It Works</h2>
+        <ul id="rules-text">
+          <li>Each square costs the listed amount. You can buy as many as you like.</li>
+          <li>The numbers for each team (0–9) will be randomized before the game starts.</li>
+          <li>Winners are based on the last digit of each team's score at the end of each quarter.</li>
+          <li>Payouts: 1Q – 5%, 2Q – 15%, 3Q – 5%, 4Q – 25% (Team retains 50%).</li>
+          <li>Payments are handled securely through Venmo (<b>@NoreastersFlagFB</b>).</li>
+        </ul>
+      </div>
+
+      <footer>
+        &copy; 2025 Cape Ann Nor’easters — Youth Flag Football
+      </footer>
+    </div>
+
+    <!-- Public app logic -->
+    <script type="module" src="./assets/public.js"></script>
+  </body>
+</html>
