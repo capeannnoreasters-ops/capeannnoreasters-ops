@@ -38,14 +38,24 @@ function defaultBoard(name="Board"){
     topNums:defaultTop,
     sideNums:defaultSide,
     numbersLocked:false,
+    // NEW: randomization timestamp to prevent re-randomizing
+    randomizedAt: "",
+
     squares:emptySquares(),
     costPerSquare:10,
-    payoutMode:"percent",               // "percent" | "fixed"
-    payouts:{q1:25,q2:25,q3:25,q4:25}, // percent of pot or fixed dollars
+
+    payoutMode:"percent",                 // "percent" | "fixed"
+    // NEW DEFAULTS (sum 50%; team keeps 50% by design)
+    payouts:{q1:5, q2:15, q3:5, q4:25},
+
     venmoHandle:"@NoreastersFlagFB",
     boardTitle:name,
     themeColor:"#1e3a8a",
-    adminHash:"",                       // optional admin lock
+    adminHash:"",
+
+    // NEW: game date (for rules)
+    gameDate:"",
+
     scores:{q1:{top:"",side:""}, q2:{top:"",side:""}, q3:{top:"",side:""}, q4:{top:"",side:""}}
   };
 }
@@ -103,13 +113,19 @@ function Setup({ root, board, setBoard }){
   const pot  = sold * board.costPerSquare;
   const set  = (k,v)=> setBoard({...board, [k]: v});
 
-  // payouts preview
-  const computed = useMemo(()=>{
+  // payouts preview + team keep (percent mode)
+  const { computed, teamKeep } = useMemo(()=>{
     if(board.payoutMode==="percent"){
+      const sum = (board.payouts.q1||0)+(board.payouts.q2||0)+(board.payouts.q3||0)+(board.payouts.q4||0);
+      const keep = Math.max(0, 100 - sum); // display-only team keep
       const n=pot/100, p=board.payouts;
-      return { q1:Math.round((p.q1||0)*n), q2:Math.round((p.q2||0)*n), q3:Math.round((p.q3||0)*n), q4:Math.round((p.q4||0)*n) };
+      return {
+        computed: { q1:Math.round((p.q1||0)*n), q2:Math.round((p.q2||0)*n), q3:Math.round((p.q3||0)*n), q4:Math.round((p.q4||0)*n) },
+        teamKeep: keep
+      };
     }
-    const p=board.payouts; return { q1:Math.round(p.q1||0), q2:Math.round(p.q2||0), q3:Math.round(p.q3||0), q4:Math.round(p.q4||0) };
+    const p=board.payouts; 
+    return { computed: { q1:Math.round(p.q1||0), q2:Math.round(p.q2||0), q3:Math.round(p.q3||0), q4:Math.round(p.q4||0) }, teamKeep: null };
   }, [board.payoutMode, board.payouts, pot]);
 
   // admin lock
@@ -169,6 +185,14 @@ function Setup({ root, board, setBoard }){
     document.body.appendChild(a); a.click(); a.remove();
   };
 
+  // randomize numbers — only when full and not yet randomized
+  const canRandomize = !VIEW_ONLY && !board.numbersLocked && board.topNums && board.sideNums && (board.randomizedAt==="" || !board.randomizedAt) && (board.squares.filter(s=>s.owner).length===100);
+  const randomizeOnce = ()=>{
+    if(!canRandomize) return;
+    const t = new Date().toISOString();
+    setBoard({...board, topNums:shuffle10(), sideNums:shuffle10(), randomizedAt:t });
+  };
+
   return html`
     <div>
       <div class="toolbar">
@@ -217,16 +241,20 @@ function Setup({ root, board, setBoard }){
           <input placeholder="@YourTeam" value=${board.venmoHandle} onInput=${e=>set("venmoHandle", e.target.value)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
         </div>
         <div>
+          <label class="label">Game Date</label>
+          <input type="date" value=${board.gameDate} onInput=${e=>set("gameDate", e.target.value)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
+        </div>
+        <div>
+          <label class="label">Cost per Square ($)</label>
+          <input type="number" min="0" value=${board.costPerSquare} onInput=${e=>set("costPerSquare", parseFloat(e.target.value)||0)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
+        </div>
+        <div>
           <label class="label">Top Team</label>
           <input value=${board.teamTop} onInput=${e=>set("teamTop", e.target.value)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
         </div>
         <div>
           <label class="label">Side Team</label>
           <input value=${board.teamSide} onInput=${e=>set("teamSide", e.target.value)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
-        </div>
-        <div>
-          <label class="label">Cost per Square ($)</label>
-          <input type="number" min="0" value=${board.costPerSquare} onInput=${e=>set("costPerSquare", parseFloat(e.target.value)||0)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
         </div>
         <div>
           <label class="label">Theme Color</label>
@@ -251,7 +279,7 @@ function Setup({ root, board, setBoard }){
       </div>
 
       <div class="controls" style="margin-top:8px">
-        <button class="primary" onClick=${()=>{ if(!board.numbersLocked && !VIEW_ONLY) setBoard({...board, topNums:shuffle10(), sideNums:shuffle10()}); }} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}>Randomize</button>
+        <button class="primary" onClick=${randomizeOnce} ${!canRandomize?"disabled":""}>Randomize (when full)</button>
         <button onClick=${()=>set("numbersLocked", !board.numbersLocked)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}>${board.numbersLocked ? "Unlock" : "Lock"}</button>
         <button onClick=${exportJSON}>Export JSON</button>
         <label class="pill" style="cursor:pointer">
@@ -260,6 +288,26 @@ function Setup({ root, board, setBoard }){
         </label>
         <button onClick=${exportCSV}>Export CSV</button>
       </div>
+
+      <div class="section-title">Payouts</div>
+      <div class="row">
+        <div>
+          <label class="label">Mode</label>
+          <select value=${board.payoutMode} onChange=${e=>set("payoutMode", e.target.value)} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}>
+            <option value="percent">Percent of Pot</option>
+            <option value="fixed">Fixed $</option>
+          </select>
+        </div>
+        ${["q1","q2","q3","q4"].map(q => html`
+          <div>
+            <label class="label">${q.toUpperCase()}</label>
+            <input type="number" value=${board.payouts[q]} onInput=${e=>set("payouts", {...board.payouts, [q]: parseFloat(e.target.value||'0')})} ${VIEW_ONLY||(!authed&&lockEnabled)?"disabled":""}/>
+          </div>
+        `)}
+      </div>
+      ${board.payoutMode==="percent" ? html`
+        <div class="small" style="margin-top:4px">Team Keep: <b>${teamKeep}%</b> (automatically the remainder)</div>
+      ` : ""}
 
       ${lockEnabled ? html`
         <div class="alert" style="margin-top:10px">
@@ -311,9 +359,27 @@ function Board({ board, setBoard }){
     showModal(html`<${SquareEditor} idx=${idx} board=${board} setBoard=${setBoard} onClose=${hideModal} />`);
   };
 
+  const rules = html`
+    <div class="alert" style="margin-top:10px">
+      <div style="font-weight:700; margin-bottom:6px">Rules</div>
+      <div><b>Board:</b> ${board.boardTitle || "(Untitled)"}</div>
+      <div><b>Cost per square:</b> $${board.costPerSquare}</div>
+      <div><b>Game date:</b> ${board.gameDate || "TBD"}</div>
+      <div><b>Teams:</b> ${board.teamTop || "Home"} vs. ${board.teamSide || "Away"}</div>
+      <div><b>Numbers:</b> Randomized prior to kickoff.</div>
+      <div><b>Payouts:</b> 
+        ${board.payoutMode==="percent"
+          ? `Q1 ${board.payouts.q1||0}% • Q2 ${board.payouts.q2||0}% • Q3 ${board.payouts.q3||0}% • Q4 ${board.payouts.q4||0}% (team keeps rest)`
+          : `Q1 $${computed.q1} • Q2 $${computed.q2} • Q3 $${computed.q3} • Q4 $${computed.q4}`
+        }
+      </div>
+      <div><b>Limits:</b> You may purchase as many squares as you want.</div>
+    </div>
+  `;
+
   return html`
     <div>
-      <div class="section-title">Board</div>
+      <div class="section-title">${board.boardTitle || "Board"}</div>
       <div class="small">Sold: ${sold} / 100 • Remaining: ${100-sold} • Pot: $${pot}</div>
       <div class="board-wrap">
         <div class="board">
@@ -353,25 +419,12 @@ function Board({ board, setBoard }){
               </div>
             </div>
             <div class="kv"><div>Ones → <b>${ones(board.scores[q].top)} & ${ones(board.scores[q].side)}</b></div><div>Payout: <b>$${computed[q]}</b></div></div>
-            <div>Winner: <b>${winners[q].owner || "TBD"}</b> ${winners[q].idx!==null ? html`<span class="small">(Row ${winners[q].row+1}, Col ${winners[q].col+1})</span>` : ""}</div>
+            <div>Winner: <b>${(board.squares[winners[q].idx]?.owner)|| "TBD"}</b> ${winners[q].idx!==null ? html`<span class="small">(Row ${winners[q].row+1}, Col ${winners[q].col+1})</span>` : ""}</div>
           </div>
         `)}
       </div>
 
-      <div class="section-title">Roster</div>
-      <div class="table">
-        <div class="thead"><div>Row</div><div>Col</div><div>Owner</div><div>Email</div><div>Paid</div><div>Note</div></div>
-        <div style="max-height:220px;overflow:auto">
-          ${board.squares.map((sq, idx)=>{
-            const {row,col}=idxToRC(idx);
-            return html`<div class="row">
-              <div>${row+1}</div><div>${col+1}</div>
-              <div>${sq.owner || ""}</div><div>${sq.email || ""}</div>
-              <div>${sq.paid ? "Yes" : "No"}</div><div>${sq.note || ""}</div>
-            </div>`;
-          })}
-        </div>
-      </div>
+      ${rules}
     </div>
   `;
 }
