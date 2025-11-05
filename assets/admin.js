@@ -13,6 +13,7 @@ window.sb = sb;
 
 /* ---------- Elements ---------- */
 const els = {
+  // Auth
   authCard: document.getElementById("authCard"),
   adminArea: document.getElementById("adminArea"),
   authEmail: document.getElementById("authEmail"),
@@ -21,17 +22,20 @@ const els = {
   signOutBtn: document.getElementById("signOutBtn"),
   authMsg: document.getElementById("authMsg"),
 
+  // Board select/meta
   boardSelect: document.getElementById("boardSelect"),
   loadBtn: document.getElementById("loadBtn"),
   deleteBoardBtn: document.getElementById("deleteBoardBtn"),
   meta: document.getElementById("meta"),
 
+  // Controls
   stats: document.getElementById("stats"),
   openBtn: document.getElementById("openBtn"),
   closeBtn: document.getElementById("closeBtn"),
   randomizeBtn: document.getElementById("randomizeBtn"),
   exportBtn: document.getElementById("exportBtn"),
 
+  // Create / Update
   cb: {
     slug:  document.getElementById("cb_slug"),
     title: document.getElementById("cb_title"),
@@ -43,6 +47,7 @@ const els = {
     createBtn: document.getElementById("cb_create"),
   },
 
+  // Payouts / Lock / Mode
   payouts: {
     q1:    document.getElementById("p_q1"),
     ht:    document.getElementById("p_ht"),
@@ -53,6 +58,7 @@ const els = {
     saveBtn: document.getElementById("saveSettingsBtn"),
   },
 
+  // Scores
   scores: {
     q1_top:    document.getElementById("a_q1_top"),
     q1_side:   document.getElementById("a_q1_side"),
@@ -65,170 +71,138 @@ const els = {
     save:      document.getElementById("saveScoresAdmin"),
   },
 
+  // Reservations
   resTableBody: document.getElementById("resTableBody"),
+
+  // Admins
   addAdminEmail: document.getElementById("newAdminEmail"),
   addAdminBtn: document.getElementById("addAdminBtn"),
 };
 
 let board = null;
 
-/* ---------- UI helpers (belt + suspenders) ---------- */
-function show(el) { el.style.display = "block"; el.hidden = false; }
-function hide(el) { el.style.display = "none";  el.hidden = true;  }
+/* ---------- Small UI helpers ---------- */
+function show(el){ el.style.display = "block"; el.hidden = false; }
+function hide(el){ el.style.display = "none";  el.hidden = true;  }
 
-async function showAdmin() {
-  console.log("[Admin] showAdmin()");
-  hide(els.authCard);
-  show(els.adminArea);
+/* ---------- Formatting helpers ---------- */
+const fmtDate = (s) => (s ? new Date(s).toLocaleString() : "");
+const toLocalDT = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0,16);
+};
+
+function renderPublicLink(){
+  if (!board?.slug) return;
+  const url = `${location.origin}/public.html?board=${encodeURIComponent(board.slug)}`;
+  let node = document.getElementById("publicLink");
+  if (node) node.remove();
+  node = document.createElement("div");
+  node.id = "publicLink";
+  node.style.cssText = "margin:6px 0 10px;padding:8px;border:1px solid #e2e8f0;border-radius:10px;background:#f1f5f9";
+  node.innerHTML = `<strong>Public View:</strong> <a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+  els.stats?.parentElement?.insertBefore(node, els.stats);
 }
-function showLogin(msg) {
-  console.log("[Admin] showLogin()", msg || "");
-  hide(els.adminArea);
-  show(els.authCard);
+
+/* ---------- Auth flow ---------- */
+async function showAdmin(){
+  console.log("[Admin] showAdmin()");
+  hide(els.authCard); show(els.adminArea);
+}
+function showLogin(msg){
+  console.log("[Admin] showLogin()", msg||"");
+  hide(els.adminArea); show(els.authCard);
   if (msg) els.authMsg.textContent = msg;
 }
 
-/* ---------- Session refresh with retries ---------- */
-async function getSessionWithRetry(retries = 5) {
-  for (let i = 0; i < retries; i++) {
+async function getSessionWithRetry(retries=5){
+  for (let i=0;i<retries;i++){
     const { data, error } = await sb.auth.getSession();
-    if (error) {
-      console.warn("[Admin] getSession error:", error);
-      await new Promise(r => setTimeout(r, 100 * (i + 1)));
-      continue;
-    }
+    if (error) { await new Promise(r=>setTimeout(r,100*(i+1))); continue; }
     if (data?.session?.user) return data.session;
-    await new Promise(r => setTimeout(r, 100 * (i + 1)));
+    await new Promise(r=>setTimeout(r,100*(i+1)));
   }
   return null;
 }
 
-async function refreshSessionUI() {
-  try {
-    const session = await getSessionWithRetry();
-    console.log("[Admin] refreshSessionUI session:", !!session, session?.user?.email);
-    if (session?.user) {
-      await showAdmin();                 // flip UI immediately
-      try { await loadBoardsList(); }
-      catch (e) {
-        console.error("[Admin] loadBoardsList failed:", e);
-        els.meta.textContent = "Boards failed to load. Check console.";
-      }
-    } else {
-      showLogin();
-    }
-  } catch (e) {
-    console.error("[Admin] refreshSessionUI threw:", e);
-    showLogin(String(e?.message || e));
+async function refreshSessionUI(){
+  const session = await getSessionWithRetry();
+  console.log("[Admin] refreshSessionUI session:", !!session, session?.user?.email);
+  if (session?.user){
+    await showAdmin();
+    try { await loadBoardsList(); }
+    catch(e){ console.error("[Admin] loadBoardsList failed:", e); els.meta.textContent = "Boards failed to load. Check console."; }
+  } else {
+    showLogin();
   }
 }
 
-/* ---------- Auth handlers ---------- */
-els.signInBtn?.addEventListener("click", async () => {
+els.signInBtn?.addEventListener("click", async ()=>{
   console.log("[Admin] Sign In clicked");
   els.authMsg.textContent = "Signing in…";
-
   const email = els.authEmail.value.trim();
   const password = els.authPassword.value;
-  if (!email || !password) { els.authMsg.textContent = "Enter email and password."; return; }
-
-  try {
+  if (!email || !password){ els.authMsg.textContent = "Enter email and password."; return; }
+  try{
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
-console.log("[Admin] signIn result:", { hasSession: !!data?.session, user: data?.user?.email, error });
-if (error) { els.authMsg.textContent = error.message || "Sign-in failed."; return; }
-
-// FORCE the UI flip immediately, regardless of listener timing
-await showAdmin();
-els.authMsg.textContent = "Signed in.";
-
-// Start boards load, but don't block the flip
-loadBoardsList().catch(e => {
-  console.error("[Admin] loadBoardsList failed post-login:", e);
-  els.meta.textContent = "Boards failed to load. Check console.";
+    console.log("[Admin] signIn result:", { hasSession: !!data?.session, user: data?.user?.email, error });
+    if (error){ els.authMsg.textContent = error.message || "Sign-in failed."; return; }
+    await showAdmin();                 // flip immediately
+    els.authMsg.textContent = "Signed in.";
+    loadBoardsList().catch(e=>{
+      console.error("[Admin] loadBoardsList failed post-login:", e);
+      els.meta.textContent = "Boards failed to load. Check console.";
+    });
+  }catch(e){
+    console.error("[Admin] signIn threw:", e);
+    els.authMsg.textContent = String(e?.message || e);
+  }
 });
 
-
-els.signOutBtn?.addEventListener("click", async () => {
+els.signOutBtn?.addEventListener("click", async ()=>{
   console.log("[Admin] Sign Out clicked");
   await sb.auth.signOut();
   els.authMsg.textContent = "Signed out.";
   await refreshSessionUI();
 });
 
-sb.auth.onAuthStateChange(async (evt, session) => {
+sb.auth.onAuthStateChange(async (evt, session)=>{
   console.log("[Admin] auth state changed:", evt, session?.user?.email);
-
-  // If we're signed in, flip the UI RIGHT NOW (no waiting on anything else).
-  if (session?.user) {
+  if (session?.user){
     await showAdmin();
-    try {
-      await loadBoardsList();
-    } catch (e) {
-      console.error("[Admin] loadBoardsList failed after SIGNED_IN:", e);
-      els.meta.textContent = "Boards failed to load. Check console.";
-    }
-    return; // don't fall through
+    try { await loadBoardsList(); } 
+    catch(e){ console.error("[Admin] loadBoardsList failed after SIGNED_IN:", e); els.meta.textContent = "Boards failed to load. Check console."; }
+    return;
   }
-
-  // Signed out -> show login
   showLogin();
 });
 
+// refresh on focus (helps mobile)
+document.addEventListener("visibilitychange", ()=>{ if (!document.hidden) refreshSessionUI(); });
 
-// Also refresh when tab regains focus (helps mobile browsers)
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) refreshSessionUI();
-});
-
-// Initial paint
+// initial paint
 refreshSessionUI();
 
-/* ---------- Utility ---------- */
-const fmtDate = (s) => (s ? new Date(s).toLocaleString() : "");
-const toLocalDT = (iso) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const off = d.getTimezoneOffset();
-  const local = new Date(d.getTime() - off * 60000);
-  return local.toISOString().slice(0, 16);
-};
-
-function renderPublicLink() {
-  if (!board?.slug) return;
-  const publicUrl = `${location.origin}/public.html?board=${encodeURIComponent(board.slug)}`;
-  const existing = document.getElementById("publicLink");
-  if (existing) existing.remove();
-  const wrap = document.createElement("div");
-  wrap.id = "publicLink";
-  wrap.style.margin = "6px 0 10px";
-  wrap.style.padding = "8px";
-  wrap.style.border = "1px solid #e2e8f0";
-  wrap.style.borderRadius = "10px";
-  wrap.style.background = "#f1f5f9";
-  wrap.innerHTML = `<strong>Public View:</strong> <a href="${publicUrl}" target="_blank" rel="noopener">${publicUrl}</a>`;
-  els.stats?.parentElement?.insertBefore(wrap, els.stats);
-}
-
 /* ---------- Boards list & load ---------- */
-async function loadBoardsList() {
+async function loadBoardsList(){
   const { data, error } = await sb
     .from("boards")
     .select("slug,title,team_top,team_side,game_date")
-    .order("game_date", { ascending: false })
+    .order("game_date", { ascending:false })
     .order("title");
-  if (error) { console.error("[Admin] loadBoardsList error:", error); alert("Failed to load boards list"); return; }
-
+  if (error){ console.error("[Admin] loadBoardsList error:", error); alert("Failed to load boards list"); return; }
   els.boardSelect.innerHTML = "";
-  (data || []).forEach(b => {
+  (data || []).forEach(b=>{
     const opt = document.createElement("option");
     opt.value = b.slug;
     opt.textContent = `${b.title} (${b.slug})`;
     els.boardSelect.appendChild(opt);
   });
-
-  if (data?.length) {
-    await loadBoard(data[0].slug);
+  if (data?.length){
     els.boardSelect.value = data[0].slug;
+    await loadBoard(data[0].slug);
   } else {
     board = null;
     els.meta.textContent = "No boards yet.";
@@ -237,25 +211,25 @@ async function loadBoardsList() {
   }
 }
 
-els.loadBtn?.addEventListener("click", async () => {
+els.loadBtn?.addEventListener("click", async ()=>{
   const slug = els.boardSelect.value;
   if (slug) await loadBoard(slug);
 });
 
-els.deleteBoardBtn?.addEventListener("click", async () => {
+els.deleteBoardBtn?.addEventListener("click", async ()=>{
   const slug = els.boardSelect.value;
   if (!slug) return;
   if (!confirm(`Delete board "${slug}" and ALL its reservations? This cannot be undone.`)) return;
   const { data, error } = await sb.rpc("admin_delete_board", { p_board_slug: slug });
-  if (error || !data?.ok) { console.error("[Admin] delete error:", error, data); alert("Delete failed."); return; }
+  if (error || !data?.ok){ console.error("[Admin] delete error:", error, data); alert("Delete failed."); return; }
   alert("Board deleted.");
   await loadBoardsList();
 });
 
 /* ---------- Load one board ---------- */
-async function loadBoard(slug) {
+async function loadBoard(slug){
   const { data, error } = await sb.from("boards").select("*").eq("slug", slug).maybeSingle();
-  if (error || !data) { console.error("[Admin] loadBoard error:", error); alert("Board not found"); return; }
+  if (error || !data){ console.error("[Admin] loadBoard error:", error); alert("Board not found"); return; }
   board = data;
 
   els.meta.textContent =
@@ -286,10 +260,10 @@ async function loadBoard(slug) {
 }
 
 /* ---------- Stats & reservations ---------- */
-async function refreshStats() {
+async function refreshStats(){
   if (!board) return;
   const { data, error } = await sb.from("board_stats").select("*").eq("slug", board.slug).maybeSingle();
-  if (error || !data) { console.error("[Admin] stats error:", error); els.stats.textContent = "Stats unavailable"; return; }
+  if (error || !data){ console.error("[Admin] stats error:", error); els.stats.textContent = "Stats unavailable"; return; }
   const sold = data.sold_count || 0;
   const paid = data.paid_count || 0;
   const pending = data.pending_count || 0;
@@ -303,17 +277,17 @@ async function refreshStats() {
   `;
 }
 
-async function refreshReservations() {
+async function refreshReservations(){
   if (!board) return;
   const { data, error } = await sb
     .from("reservations")
     .select("id,square_idx,buyer_name,email,status,created_at,paid_at")
     .eq("board_id", board.id)
-    .order("created_at", { ascending: false });
-  if (error) { console.error("[Admin] reservations error:", error); alert("Failed to load reservations"); return; }
+    .order("created_at", { ascending:false });
+  if (error){ console.error("[Admin] reservations error:", error); alert("Failed to load reservations"); return; }
 
   els.resTableBody.innerHTML = "";
-  for (const r of data || []) {
+  (data || []).forEach(r=>{
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${fmtDate(r.created_at)}</td>
@@ -325,16 +299,16 @@ async function refreshReservations() {
       <td>${r.status !== "paid" ? `<button data-id="${r.id}" class="markPaid">Mark Paid</button>` : ""}</td>
     `;
     els.resTableBody.appendChild(tr);
-  }
+  });
 
-  document.querySelectorAll(".markPaid").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+  document.querySelectorAll(".markPaid").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
       const id = btn.getAttribute("data-id");
       const { data: resp, error } = await sb.rpc("admin_mark_paid", {
         p_board_slug: board.slug,
         p_reservation_id: id,
       });
-      if (error || !resp?.ok) { console.error("[Admin] markPaid error:", error, resp); alert("Not authorized or failed."); return; }
+      if (error || !resp?.ok){ console.error("[Admin] markPaid error:", error, resp); alert("Not authorized or failed."); return; }
       await refreshStats();
       await refreshReservations();
     });
@@ -342,57 +316,55 @@ async function refreshReservations() {
 }
 
 /* ---------- Core actions ---------- */
-els.openBtn?.addEventListener("click", async () => {
+els.openBtn?.addEventListener("click", async ()=>{
   if (!board) return;
   const { data, error } = await sb.rpc("admin_set_open", { p_board_slug: board.slug, p_is_open: true });
-  if (error || !data?.ok) return alert("Not authorized.");
+  if (error || !data?.ok){ alert("Not authorized."); return; }
   await loadBoard(board.slug);
 });
 
-els.closeBtn?.addEventListener("click", async () => {
+els.closeBtn?.addEventListener("click", async ()=>{
   if (!board) return;
   const { data, error } = await sb.rpc("admin_set_open", { p_board_slug: board.slug, p_is_open: false });
-  if (error || !data?.ok) return alert("Not authorized.");
+  if (error || !data?.ok){ alert("Not authorized."); return; }
   await loadBoard(board.slug);
 });
 
-els.randomizeBtn?.addEventListener("click", async () => {
+els.randomizeBtn?.addEventListener("click", async ()=>{
   if (!board) return;
   if (!confirm("Randomize header numbers now? This can only be done once and cannot be undone.")) return;
   const { data, error } = await sb.rpc("admin_randomize_once", { p_board_slug: board.slug });
-  if (error || !data?.ok) {
+  if (error || !data?.ok){
     const reason = data?.reason || "failed";
-    return alert("Randomize blocked: " + reason + " (needs 100/100 and not previously randomized)");
+    alert("Randomize blocked: " + reason + " (needs 100/100 and not previously randomized)");
+    return;
   }
   await loadBoard(board.slug);
 });
 
-els.exportBtn?.addEventListener("click", async () => {
+els.exportBtn?.addEventListener("click", async ()=>{
   if (!board) return;
   const { data, error } = await sb
     .from("reservations")
     .select("square_idx,buyer_name,email,status,paid_at,created_at")
     .eq("board_id", board.id)
     .order("square_idx");
-  if (error) return alert("Export failed.");
-
-  const rows = [["Square", "Name", "Email", "Status", "Paid At", "Reserved At"]];
-  (data || []).forEach((r) => {
-    rows.push([r.square_idx + 1, r.buyer_name || "", r.email || "", r.status, r.paid_at || "", r.created_at || ""]);
+  if (error){ alert("Export failed."); return; }
+  const rows = [["Square","Name","Email","Status","Paid At","Reserved At"]];
+  (data || []).forEach(r=>{
+    rows.push([r.square_idx+1, r.buyer_name||"", r.email||"", r.status, r.paid_at||"", r.created_at||""]);
   });
-  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+  const blob = new Blob([csv], { type:"text/csv" });
   const a = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(blob),
     download: `${board.slug}-reservations.csv`,
   });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  document.body.appendChild(a); a.click(); a.remove();
 });
 
 /* ---------- Create / Update Board ---------- */
-els.cb.createBtn?.addEventListener("click", async () => {
+els.cb.createBtn?.addEventListener("click", async ()=>{
   const p = {
     slug: els.cb.slug.value.trim(),
     title: els.cb.title.value.trim(),
@@ -402,7 +374,7 @@ els.cb.createBtn?.addEventListener("click", async () => {
     date: els.cb.date.value ? els.cb.date.value : null,
     venmo: els.cb.venmo.value.trim() || "@NoreastersFlagFB",
   };
-  if (!p.slug || !p.title) { alert("Slug and Title are required."); return; }
+  if (!p.slug || !p.title){ alert("Slug and Title are required."); return; }
 
   const payload = {
     p_slug: p.slug,
@@ -413,20 +385,20 @@ els.cb.createBtn?.addEventListener("click", async () => {
     p_game_date: p.date,
     p_venmo_handle: p.venmo,
     p_payout_mode: "percent",
-    p_payouts: { q1: 5, ht: 15, q4: 5, final: 25 },
+    p_payouts: { q1:5, ht:15, q4:5, final:25 },
     p_is_open: true,
   };
 
   const { data, error } = await sb.rpc("admin_create_board", payload);
-  if (error || !data?.ok) { console.error("[Admin] create error:", error, data); alert("Create failed."); return; }
+  if (error || !data?.ok){ console.error("[Admin] create error:", error, data); alert("Create failed."); return; }
   alert("Board created/updated.");
   await loadBoardsList();
   els.boardSelect.value = p.slug;
   await loadBoard(p.slug);
 });
 
-/* ---------- Save payouts/mode/lock ---------- */
-els.payouts.saveBtn?.addEventListener("click", async () => {
+/* ---------- Save payouts / lock / mode ---------- */
+els.payouts.saveBtn?.addEventListener("click", async ()=>{
   if (!board) return;
 
   const payouts = {
@@ -444,13 +416,13 @@ els.payouts.saveBtn?.addEventListener("click", async () => {
     p_lock_at: lockISO,
     p_payout_mode: mode,
   });
-  if (error || !data?.ok) { console.error("[Admin] save settings error:", error, data); alert("Save failed."); return; }
+  if (error || !data?.ok){ console.error("[Admin] save settings error:", error, data); alert("Save failed."); return; }
   alert("Settings saved.");
   await loadBoard(board.slug);
 });
 
-/* ---------- Save Official Scores ---------- */
-els.scores.save?.addEventListener("click", async () => {
+/* ---------- Save Scores ---------- */
+els.scores.save?.addEventListener("click", async ()=>{
   if (!board) return;
 
   const scores = {
@@ -464,16 +436,16 @@ els.scores.save?.addEventListener("click", async () => {
     p_board_slug: board.slug,
     p_scores: scores,
   });
-  if (error || !data?.ok) { console.error("[Admin] save scores error:", error, data); alert("Save failed."); return; }
+  if (error || !data?.ok){ console.error("[Admin] save scores error:", error, data); alert("Save failed."); return; }
   alert("Scores saved.");
   await loadBoard(board.slug);
 });
 
 /* ---------- Admins manager ---------- */
-els.addAdminBtn?.addEventListener("click", async () => {
+els.addAdminBtn?.addEventListener("click", async ()=>{
   const email = els.addAdminEmail.value.trim();
-  if (!email) return alert("Enter an email.");
+  if (!email){ alert("Enter an email."); return; }
   const { data, error } = await sb.rpc("add_admin_by_email", { p_email: email });
-  if (error || !data?.ok) { console.error("[Admin] add admin error:", error, data); alert("Add admin failed. Make sure the user exists in Auth."); return; }
+  if (error || !data?.ok){ console.error("[Admin] add admin error:", error, data); alert("Add admin failed. Ensure the user exists in Auth."); return; }
   alert("Admin added.");
 });
