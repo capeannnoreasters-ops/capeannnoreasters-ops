@@ -19,7 +19,7 @@ const els = {
   setPwdBtn: document.getElementById("setPwdBtn"),
   meta: document.getElementById("meta"),
 
-  // Controls
+  // Controls (Board Controls card)
   stats: document.getElementById("stats"),
   openBtn: document.getElementById("openBtn"),
   closeBtn: document.getElementById("closeBtn"),
@@ -79,6 +79,32 @@ const toLocalDT = (iso) => {
   return local.toISOString().slice(0, 16); // yyyy-mm-ddThh:mm
 };
 
+/** Renders a “Public View” link inside the Board Controls card */
+function renderPublicLink() {
+  if (!board || !board.slug) return;
+  const publicUrl = `${location.origin}/public.html?board=${encodeURIComponent(board.slug)}`;
+
+  // Remove any previous link block
+  const old = document.getElementById("publicLink");
+  if (old) old.remove();
+
+  // Create a styled block and insert it above the stats pills in the same card
+  const div = document.createElement("div");
+  div.id = "publicLink";
+  div.style.margin = "6px 0 10px";
+  div.style.padding = "8px";
+  div.style.border = "1px solid #e2e8f0";
+  div.style.borderRadius = "10px";
+  div.style.background = "#f1f5f9";
+  div.innerHTML = `
+    <strong>Public View:</strong>
+    <a href="${publicUrl}" target="_blank" rel="noopener noreferrer">${publicUrl}</a>
+  `;
+
+  // Insert right before the stats element in the Board Controls card
+  els.stats.parentElement.insertBefore(div, els.stats);
+}
+
 /* ---------- Load & refresh ---------- */
 async function loadBoard(slug) {
   const { data, error } = await sb.from("boards").select("*").eq("slug", slug).maybeSingle();
@@ -114,6 +140,9 @@ async function loadBoard(slug) {
     ["q1_top","q1_side","ht_top","ht_side","q4_top","q4_side","final_top","final_side"]
       .forEach(k => els.scores[k].value = "");
   }
+
+  // 👉 Add the public link right in the Board Controls card
+  renderPublicLink();
 
   await refreshStats();
   await refreshReservations();
