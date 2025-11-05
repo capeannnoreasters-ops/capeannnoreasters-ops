@@ -1,26 +1,32 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Nor’easters — Admin</title>
   <link rel="icon" href="./assets/logo-wordmark.png"/>
   <style>
-    :root { --brand:#1e3a8a; --bg:#f8fafc; --card:#fff; --border:#e2e8f0; --ink:#0f172a; --muted:#475569; }
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto}
+    :root { --brand:#1e3a8a; --bg:#f8fafc; --card:#ffffff; --border:#e2e8f0; --ink:#0f172a; --muted:#475569; }
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
     .wrap{max-width:1100px;margin:0 auto;padding:16px}
-    header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-    header img{height:52px}
+    header{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+    header img{height:56px;background:#fff;border-radius:12px;padding:6px}
     h1{margin:0;font-size:20px}
-    .row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
+    .small{color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr 2fr;gap:12px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px}
     .label{font-weight:700;margin-bottom:4px;display:block}
-    input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:10px}
+    .row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;align-items:end}
+    .row2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;align-items:end}
+    input,button{font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:10px}
     button{background:var(--brand);color:#fff;border-color:var(--brand);cursor:pointer}
+    button.ghost{background:#fff;color:var(--ink)}
+    .pill{padding:4px 8px;border:1px solid var(--border);border-radius:999px;background:#fff;font-size:12px;margin-right:6px}
     table{width:100%;border-collapse:collapse;font-size:13px}
     th,td{border:1px solid var(--border);padding:6px;text-align:left}
-    .small{color:var(--muted);font-size:12px}
-    .pill{padding:4px 8px;border:1px solid var(--border);border-radius:999px;background:#fff;font-size:12px;margin-right:6px}
+    .section-title{font-weight:700;margin:6px 0 8px}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} .row{grid-template-columns:1fr} .row2{grid-template-columns:1fr} }
   </style>
 </head>
 <body>
@@ -29,21 +35,25 @@
       <img src="./assets/logo-full.png" alt="Logo" onerror="this.style.display='none'"/>
       <div>
         <h1>Nor’easters — Admin</h1>
-        <div class="small">Manage boards, payouts, and randomization</div>
+        <div class="small">Manage boards, sales, randomization, payouts & exports</div>
+      </div>
+      <div style="margin-left:auto">
+        <a class="small" href="./">↩ Back to Boards</a>
       </div>
     </header>
 
+    <!-- Load / Auth -->
     <div class="card">
       <div class="row">
         <div>
-          <label class="label">Board (slug)</label>
-          <input id="slug" placeholder="e.g., week1-scrimmage"/>
+          <label class="label" for="slug">Board Slug</label>
+          <input id="slug" placeholder="e.g., week3-storm"/>
         </div>
         <div>
-          <label class="label">Admin Password</label>
+          <label class="label" for="adminToken">Admin Password</label>
           <input id="adminToken" type="password" placeholder="enter admin password"/>
         </div>
-        <div style="display:flex;gap:8px;align-items:flex-end">
+        <div style="display:flex;gap:8px">
           <button id="loadBtn">Load</button>
           <button id="setPwdBtn" title="Set/Change admin password">Set Admin Password</button>
         </div>
@@ -51,33 +61,96 @@
       <div id="meta" class="small" style="margin-top:8px"></div>
     </div>
 
-    <div class="row">
+    <div class="grid">
+      <!-- Left: Controls + Create Board -->
       <div class="card">
-        <div class="label">Board Controls</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="section-title">Board Controls</div>
+        <div class="row2">
           <button id="openBtn">Open Sales</button>
           <button id="closeBtn">Close Sales</button>
+        </div>
+        <div class="row2" style="margin-top:8px">
           <button id="randomizeBtn" title="Requires 100/100 taken">Randomize Numbers (once)</button>
           <button id="exportBtn">Export CSV</button>
         </div>
-        <div id="stats" style="margin-top:8px"></div>
+        <div id="stats" style="margin-top:10px"></div>
+
+        <hr style="margin:14px 0;border:0;border-top:1px dashed var(--border)"/>
+
+        <div class="section-title">Create Board</div>
+        <div class="row2">
+          <div>
+            <label class="label" for="cb_slug">Slug (unique URL id)</label>
+            <input id="cb_slug" placeholder="e.g., week4-lions"/>
+          </div>
+          <div>
+            <label class="label" for="cb_title">Title</label>
+            <input id="cb_title" placeholder="Week 4 vs Lions"/>
+          </div>
+        </div>
+        <div class="row2" style="margin-top:8px">
+          <div>
+            <label class="label" for="cb_top">Top team</label>
+            <input id="cb_top" placeholder="Nor’easters"/>
+          </div>
+          <div>
+            <label class="label" for="cb_side">Side team</label>
+            <input id="cb_side" placeholder="Opponents"/>
+          </div>
+        </div>
+        <div class="row2" style="margin-top:8px">
+          <div>
+            <label class="label" for="cb_cost">$ per square</label>
+            <input id="cb_cost" type="number" min="0" step="1" placeholder="20"/>
+          </div>
+          <div>
+            <label class="label" for="cb_date">Game date</label>
+            <input id="cb_date" type="date"/>
+          </div>
+        </div>
+        <div class="row2" style="margin-top:8px">
+          <div>
+            <label class="label" for="cb_venmo">Venmo handle</label>
+            <input id="cb_venmo" placeholder="@NoreastersFlagFB"/>
+          </div>
+          <div>
+            <label class="label" for="cb_pwd">Admin password (for this board)</label>
+            <input id="cb_pwd" type="password" placeholder="set a password"/>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <button id="cb_create">Create/Update Board</button>
+          <div class="small" style="margin-top:6px">
+            Creates the board (or updates if slug exists) and stores a hashed admin password on the server.
+          </div>
+        </div>
       </div>
 
-      <div class="card" style="grid-column: span 2">
-        <div class="label">Reservations</div>
+      <!-- Right: Reservations table -->
+      <div class="card">
+        <div class="section-title">Reservations</div>
         <div class="small" style="margin-bottom:6px">Click “Mark Paid” to confirm payment.</div>
-        <div style="max-height:420px;overflow:auto">
-          <table id="resTable">
-            <thead><tr>
-              <th>When</th><th>Idx</th><th>Name</th><th>Email</th><th>Status</th><th>Paid At</th><th>Action</th>
-            </tr></thead>
-            <tbody></tbody>
+        <div style="max-height:560px;overflow:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>Idx</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th>Paid At</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="resTableBody"></tbody>
           </table>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- Admin logic -->
   <script type="module" src="./assets/admin.js"></script>
 </body>
 </html>
