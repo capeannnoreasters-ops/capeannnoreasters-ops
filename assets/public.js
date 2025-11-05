@@ -1,6 +1,6 @@
 // --- CONFIG: set these two values only ---
 const SUPABASE_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk";
+const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY_HERE";
 // -----------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -15,7 +15,28 @@ const els = {
   meta: document.getElementById("board-meta"),
   stats: document.getElementById("board-stats"),
   rules: document.getElementById("rules-text"),
+  payoutLine: document.getElementById("payout-line"),
+  lockLine: document.getElementById("lock-line"),
   grid: document.getElementById("board-grid"),
+  winnersWrap: document.getElementById("winners"),
+  winnersList: document.getElementById("winners-list"),
+  // admin drawer
+  drawer: document.getElementById("drawer"),
+  adminToggle: document.getElementById("adminToggle"),
+  adminFab: document.getElementById("adminFab"),
+  admSlug: document.getElementById("admSlug"),
+  admToken: document.getElementById("admToken"),
+  s: {
+    q1_top: document.getElementById("s_q1_top"),
+    q1_side: document.getElementById("s_q1_side"),
+    ht_top: document.getElementById("s_ht_top"),
+    ht_side: document.getElementById("s_ht_side"),
+    q4_top: document.getElementById("s_q4_top"),
+    q4_side: document.getElementById("s_q4_side"),
+    final_top: document.getElementById("s_final_top"),
+    final_side: document.getElementById("s_final_side"),
+    save: document.getElementById("saveScores"),
+  }
 };
 
 function showError(msg) {
@@ -33,6 +54,7 @@ function showError(msg) {
 function cell(text, classes=""){ const d=document.createElement("div"); d.className=`cell ${classes}`.trim(); d.textContent=text??""; return d; }
 function rcToIdx(r,c){ return r*10+c; }
 function idxToRC(i){ return {row:Math.floor(i/10), col:i%10}; }
+function ones(n){ return Math.abs(parseInt(n||0,10)) % 10; }
 
 async function loadBoardsList() {
   const { data, error } = await sb
@@ -58,17 +80,13 @@ async function loadBoardsList() {
     els.select.appendChild(opt);
   });
 
-  // Preselect current slug if present, else set to first
   const current = slug || data[0].slug;
   els.select.value = current;
   if (!slug) {
-    // Ensure URL shows the selected board
     location.search = `?board=${encodeURIComponent(current)}`;
   }
-
   els.select.addEventListener("change", () => {
-    const to = els.select.value;
-    location.search = `?board=${encodeURIComponent(to)}`;
+    location.search = `?board=${encodeURIComponent(els.select.value)}`;
   });
 }
 
@@ -77,7 +95,7 @@ async function loadBoardBySlug(slugValue) {
 
   const { data, error } = await sb
     .from("boards")
-    .select("id, slug, title, team_top, team_side, cost_per_square, game_date, venmo_handle, payout_mode, payouts, team_keep_percent, top_nums, side_nums, randomized_at, is_open")
+    .select("id, slug, title, team_top, team_side, cost_per_square, game_date, venmo_handle, payout_mode, payouts, team_keep_percent, top_nums, side_nums, randomized_at, is_open, lock_at, scores")
     .eq("slug", slugValue)
     .maybeSingle();
 
@@ -87,16 +105,11 @@ async function loadBoardBySlug(slugValue) {
 }
 
 async function loadReservations(boardId) {
-  // also fetch buyer_name so we can show it in the square
   const { data, error } = await sb
     .from("reservations")
     .select("square_idx,status,buyer_name")
     .eq("board_id", boardId);
-
-  if (error) {
-    console.error("Supabase error loading reservations:", error);
-    return [];
-  }
+  if (error) { console.error("Supabase error loading reservations:", error); return []; }
   return data || [];
 }
 
@@ -109,12 +122,10 @@ function renderInfo(board, reservations) {
   if (board.venmo_handle) metaParts.push(`Venmo: ${board.venmo_handle}`);
   els.meta.textContent = metaParts.join(" • ");
 
-  // Stats
   const paid = reservations.filter(r=>r.status==='paid').length;
   const pending = reservations.filter(r=>r.status==='pending').length;
   const sold = paid + pending;
   const pot = sold * (board.cost_per_square||0);
-
   els.stats.innerHTML = `
     <span class="stat">Sold: ${sold}/100</span>
     <span class="stat">Paid: ${paid}</span>
@@ -123,79 +134,114 @@ function renderInfo(board, reservations) {
     <span class="stat">${board.is_open ? "OPEN" : "CLOSED"}</span>
   `;
 
-  // Rules payout line from DB (if present)
+  // Rules — payouts line + lock time
   if (board.payout_mode === "percent" && board.payouts) {
-    const q1 = board.payouts.q1 ?? 0, q2 = board.payouts.q2 ?? 0, q3 = board.payouts.q3 ?? 0, q4 = board.payouts.q4 ?? 0;
-    const keep = board.team_keep_percent ?? Math.max(0, 100 - (q1+q2+q3+q4));
-    const liList = els.rules.querySelectorAll("li");
-    const payoutsLi = liList[3]; // 4th bullet in the template
-    if (payoutsLi) payoutsLi.innerHTML = `Payouts: 1Q – ${q1}%, 2Q – ${q2}%, 3Q – ${q3}%, 4Q – ${q4}% (Team retains ${keep}%).`;
+    const q1 = board.payouts.q1 ?? 0, ht = board.payouts.ht ?? 0, q4 = board.payouts.q4 ?? 0, fin = board.payouts.final ?? 0;
+    const keep = board.team_keep_percent ?? Math.max(0, 100 - (q1+ht+q4+fin));
+    els.payoutLine.innerHTML = `Payouts: 1Q – ${q1}%, HT – ${ht}%, Q4 – ${q4}%, Final – ${fin}% (Team keeps ${keep}%).`;
   }
+  if (board.lock_at) {
+    const when = new Date(board.lock_at).toLocaleString();
+    els.lockLine.style.display = "";
+    els.lockLine.textContent = `Numbers will be locked & randomized at ${when}.`;
+  } else {
+    els.lockLine.style.display = "none";
+  }
+}
+
+function computeWinners(board) {
+  if (!board.scores || !board.randomized_at) return null;
+  const top = Array.isArray(board.top_nums) ? board.top_nums : null;
+  const side = Array.isArray(board.side_nums) ? board.side_nums : null;
+  if (!top || !side || top.length !== 10 || side.length !== 10) return null;
+
+  const where = (scoreObj)=> {
+    const c = top.indexOf(ones(scoreObj.top));
+    const r = side.indexOf(ones(scoreObj.side));
+    if (r < 0 || c < 0) return null;
+    return rcToIdx(r, c);
+  };
+
+  const winners = {};
+  if (board.scores.q1)    winners.q1    = where(board.scores.q1);
+  if (board.scores.ht)    winners.ht    = where(board.scores.ht);
+  if (board.scores.q4)    winners.q4    = where(board.scores.q4);
+  if (board.scores.final) winners.final = where(board.scores.final);
+  return winners;
 }
 
 function renderGrid(board, reservations) {
   els.grid.innerHTML = "";
-
-  // If not randomized, we still build the grid,
-  // but we do NOT show the numbers next to the team names.
   const numbersVisible = !!board.randomized_at;
 
-  const top = Array.isArray(board.top_nums) && board.top_nums.length === 10 ? board.top_nums : [0,1,2,3,4,5,6,7,8,9];
-  const side = Array.isArray(board.side_nums) && board.side_nums.length === 10 ? board.side_nums : [0,1,2,3,4,5,6,7,8,9];
+  const top = Array.isArray(board.top_nums)&&board.top_nums.length===10 ? board.top_nums : [0,1,2,3,4,5,6,7,8,9];
+  const side = Array.isArray(board.side_nums)&&board.side_nums.length===10 ? board.side_nums : [0,1,2,3,4,5,6,7,8,9];
 
-  // Map: idx -> { status, name }
-  const taken = new Map();
-  for (const r of reservations) {
-    taken.set(r.square_idx, { status: r.status, name: r.buyer_name });
-  }
+  const taken = new Map(); // idx -> { status, name }
+  for (const r of reservations) taken.set(r.square_idx, { status: r.status, name: r.buyer_name });
 
-  // Top-left empty
+  const winners = computeWinners(board) || {};
+
+  // top-left
   els.grid.appendChild(cell("", "head sticky-top"));
-
-  // Top header (team_top)
+  // top header
   top.forEach(n => {
     const label = numbersVisible ? `${board.team_top} ${n}` : `${board.team_top}`;
     els.grid.appendChild(cell(label, "head sticky-top"));
   });
-
-  // Rows
+  // rows
   side.forEach((sn, r) => {
-    // Left header (team_side)
     const leftLabel = numbersVisible ? `${board.team_side} ${sn}` : `${board.team_side}`;
     els.grid.appendChild(cell(leftLabel, "head sticky-left"));
 
-    for (let c = 0; c < 10; c++) {
-      const idx = rcToIdx(r, c);
+    for (let c=0;c<10;c++){
+      const idx = rcToIdx(r,c);
       const info = taken.get(idx);
       const status = info?.status;
-      const classes = status === "paid" ? "paid" : status === "pending" ? "pending" : "";
+      let classes = status === "paid" ? "paid" : status === "pending" ? "pending" : "";
 
-      // Text to show in square:
-      // - if reserved: the buyer's name (fallbacks to status text)
-      // - if free: simple square number
-      const label = info
-        ? (info.name?.trim() || (status === "paid" ? "Paid" : "Pending"))
-        : `#${idx + 1}`;
+      // highlight any winning square (Q1/HT/Q4/Final)
+      if (Object.values(winners).includes(idx)) {
+        classes = (classes ? classes+" " : "") + "win";
+      }
 
+      const label = info ? (info.name?.trim() || (status === "paid" ? "Paid" : "Pending")) : `#${idx + 1}`;
       const d = cell(label, classes);
 
       if (!info && board.is_open) {
-        d.style.cursor = "pointer";
-        d.title = "Click to reserve";
-        d.addEventListener("click", () => reserveSquare(board, idx));
+        d.style.cursor="pointer";
+        d.title="Click to reserve";
+        d.addEventListener("click", ()=> reserveSquare(board, idx));
       } else {
-        d.style.opacity = ".7";
-        if (info) {
-          // Helpful hover text
-          d.title = `${info.name || "Reserved"} • ${status}`;
-        }
+        d.style.opacity=".8";
+        if (info) d.title = `${info.name || "Reserved"} • ${status}`;
       }
-
       els.grid.appendChild(d);
     }
   });
-}
 
+  // Winners list (names if available)
+  if (board.scores && board.randomized_at) {
+    const mapName = (idx)=>{
+      if (idx == null) return "—";
+      const res = reservations.find(r => r.square_idx === idx);
+      return res?.buyer_name || `Square #${idx+1}`;
+    };
+    const list = [];
+    if (winners.q1    !== undefined) list.push(`Q1: ${mapName(winners.q1)}`);
+    if (winners.ht    !== undefined) list.push(`HT: ${mapName(winners.ht)}`);
+    if (winners.q4    !== undefined) list.push(`Q4: ${mapName(winners.q4)}`);
+    if (winners.final !== undefined) list.push(`Final: ${mapName(winners.final)}`);
+    if (list.length) {
+      els.winnersWrap.style.display = "";
+      els.winnersList.innerHTML = list.map(x => `• ${x}`).join("<br/>");
+    } else {
+      els.winnersWrap.style.display = "none";
+    }
+  } else {
+    els.winnersWrap.style.display = "none";
+  }
+}
 
 function buildVenmoUrl(handle, amount, note) {
   const clean = handle?.startsWith("@") ? handle.slice(1) : handle;
@@ -232,21 +278,58 @@ async function reserveSquare(board, idx) {
   renderGrid(board, reservations);
 }
 
+// -------- Admin drawer: toggle & save scores --------
+[els.adminToggle, els.adminFab].forEach(btn=>{
+  if (!btn) return;
+  btn.addEventListener("click", ()=>{
+    els.drawer.classList.toggle("open");
+  });
+});
+
+els.s.save.addEventListener("click", async ()=>{
+  const token = els.admToken.value.trim();
+  const sSlug = els.admSlug.value.trim() || new URLSearchParams(location.search).get("board");
+  if (!sSlug || !token) { alert("Enter slug and admin password."); return; }
+
+  const scores = {
+    q1:    { top: els.s.q1_top.value,    side: els.s.q1_side.value },
+    ht:    { top: els.s.ht_top.value,    side: els.s.ht_side.value },
+    q4:    { top: els.s.q4_top.value,    side: els.s.q4_side.value },
+    final: { top: els.s.final_top.value, side: els.s.final_side.value },
+  };
+
+  const { data, error } = await sb.rpc("admin_set_scores", {
+    p_board_slug: sSlug,
+    p_token: token,
+    p_scores: scores
+  });
+  if (error || !data?.ok) { alert("Save failed (check password/slug)."); return; }
+
+  alert("Scores saved.");
+  // reload board/winners
+  const b = await loadBoardBySlug(sSlug);
+  const res = await loadReservations(b.id);
+  renderInfo(b, res);
+  renderGrid(b, res);
+});
+
 async function start(){
   els.grid.innerHTML = "<div style='padding:10px'>Loading…</div>";
-  await loadBoardsList(); // builds the selector and may redirect to first board
+  await loadBoardsList();
 
   try{
     const board = await loadBoardBySlug(new URLSearchParams(location.search).get("board"));
+    els.admSlug.value = board.slug; // prefill drawer
     const reservations = await loadReservations(board.id);
     renderInfo(board, reservations);
     renderGrid(board, reservations);
 
-    // Poll every 8s to reflect new purchases
+    // Poll updates
     setInterval(async ()=>{
-      const data = await loadReservations(board.id);
-      renderInfo(board, data);
-      renderGrid(board, data);
+      const b = await loadBoardBySlug(new URLSearchParams(location.search).get("board"));
+      const data = await loadReservations(b.id);
+      renderInfo(b, data);
+      renderGrid(b, data);
     }, 8000);
   }catch(e){ console.error(e); }
 }
