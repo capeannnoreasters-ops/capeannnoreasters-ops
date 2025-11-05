@@ -133,61 +133,55 @@ function renderPublicLink() {
 }
 
 /* ---------- Auth UI ---------- */
+/* ---------- Auth UI (robust) ---------- */
+async function showAdmin() {
+  // Force explicit display states (avoid empty string ambiguity)
+  els.authCard.style.display = "none";
+  els.adminArea.style.display = "block";
+}
+function showLogin(msg) {
+  els.adminArea.style.display = "none";
+  els.authCard.style.display = "block";
+  if (msg) els.authMsg.textContent = msg;
+}
+
 async function refreshSessionUI() {
   try {
-    const { data: { user }, error } = await sb.auth.getUser();
+    const { data, error } = await sb.auth.getSession();
     if (error) {
-      console.error("[Admin] getUser error:", error);
-      els.authMsg.textContent = error.message || "Auth error.";
+      console.error("[Admin] getSession error:", error);
+      showLogin(error.message || "Auth error.");
+      return;
     }
-    if (user) {
-      els.authCard.style.display = "none";
-      els.adminArea.style.display = "";
-      await loadBoardsList();
+    const session = data?.session;
+    console.log("[Admin] refreshSessionUI session:", !!session, session?.user?.email);
+
+    if (session?.user) {
+      await showAdmin();             // <-- flip the UI immediately
+      try {
+        await loadBoardsList();      // <-- if this fails, keep admin UI visible & show a message
+      } catch (e) {
+        console.error("[Admin] loadBoardsList failed:", e);
+        els.meta.textContent = "Boards failed to load. Check console.";
+      }
     } else {
-      els.adminArea.style.display = "none";
-      els.authCard.style.display = "";
+      showLogin();                   // back to login screen
     }
   } catch (e) {
-    console.error("[Admin] refreshSessionUI failed:", e);
-    els.authMsg.textContent = String(e?.message || e);
+    console.error("[Admin] refreshSessionUI threw:", e);
+    showLogin(String(e?.message || e));
   }
 }
 
-els.signInBtn?.addEventListener("click", async () => {
-  console.log("[Admin] Sign In clicked");
-  els.authMsg.textContent = "";
-  const email = els.authEmail.value.trim();
-  const password = els.authPassword.value;
-  if (!email || !password) {
-    els.authMsg.textContent = "Enter email and password.";
-    return;
-  }
-
-  try {
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      console.error("[Admin] signIn error:", error);
-      els.authMsg.textContent = error.message || "Sign-in failed.";
-      return;
-    }
-    console.log("[Admin] signIn ok:", data?.user?.id);
-    await refreshSessionUI();
-  } catch (e) {
-    console.error("[Admin] signIn threw:", e);
-    els.authMsg.textContent = String(e?.message || e);
-  }
-});
-
-els.signOutBtn?.addEventListener("click", async () => {
-  console.log("[Admin] Sign Out clicked");
-  await sb.auth.signOut();
-  board = null;
-  els.meta.textContent = "";
-  els.resTableBody.innerHTML = "";
-  els.stats.innerHTML = "";
+// Listen to all auth state changes
+sb.auth.onAuthStateChange(async (evt, session) => {
+  console.log("[Admin] auth state changed:", evt, "user:", session?.user?.email);
   await refreshSessionUI();
 });
+
+// Initial paint
+await refreshSessionUI();
+
 
 /* ---------- Boards list & load ---------- */
 async function loadBoardsList() {
