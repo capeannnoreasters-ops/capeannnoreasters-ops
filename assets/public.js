@@ -87,11 +87,16 @@ async function loadBoardBySlug(slugValue) {
 }
 
 async function loadReservations(boardId) {
+  // also fetch buyer_name so we can show it in the square
   const { data, error } = await sb
     .from("reservations")
-    .select("square_idx,status")
+    .select("square_idx,status,buyer_name")
     .eq("board_id", boardId);
-  if (error) { console.error("Supabase error loading reservations:", error); return []; }
+
+  if (error) {
+    console.error("Supabase error loading reservations:", error);
+    return [];
+  }
   return data || [];
 }
 
@@ -130,35 +135,67 @@ function renderInfo(board, reservations) {
 
 function renderGrid(board, reservations) {
   els.grid.innerHTML = "";
-  const top = Array.isArray(board.top_nums)&&board.top_nums.length===10 ? board.top_nums : [0,1,2,3,4,5,6,7,8,9];
-  const side = Array.isArray(board.side_nums)&&board.side_nums.length===10 ? board.side_nums : [0,1,2,3,4,5,6,7,8,9];
 
-  const taken = new Map(); // idx -> 'pending'|'paid'
-  for (const r of reservations) taken.set(r.square_idx, r.status);
+  // If not randomized, we still build the grid,
+  // but we do NOT show the numbers next to the team names.
+  const numbersVisible = !!board.randomized_at;
 
-  // top-left empty
+  const top = Array.isArray(board.top_nums) && board.top_nums.length === 10 ? board.top_nums : [0,1,2,3,4,5,6,7,8,9];
+  const side = Array.isArray(board.side_nums) && board.side_nums.length === 10 ? board.side_nums : [0,1,2,3,4,5,6,7,8,9];
+
+  // Map: idx -> { status, name }
+  const taken = new Map();
+  for (const r of reservations) {
+    taken.set(r.square_idx, { status: r.status, name: r.buyer_name });
+  }
+
+  // Top-left empty
   els.grid.appendChild(cell("", "head sticky-top"));
-  // top header (team_top numbers)
-  top.forEach(n => els.grid.appendChild(cell(`${board.team_top} ${n}`, "head sticky-top")));
-  // rows
+
+  // Top header (team_top)
+  top.forEach(n => {
+    const label = numbersVisible ? `${board.team_top} ${n}` : `${board.team_top}`;
+    els.grid.appendChild(cell(label, "head sticky-top"));
+  });
+
+  // Rows
   side.forEach((sn, r) => {
-    els.grid.appendChild(cell(`${board.team_side} ${sn}`, "head sticky-left"));
-    for (let c=0;c<10;c++){
-      const idx = rcToIdx(r,c);
-      const status = taken.get(idx);
+    // Left header (team_side)
+    const leftLabel = numbersVisible ? `${board.team_side} ${sn}` : `${board.team_side}`;
+    els.grid.appendChild(cell(leftLabel, "head sticky-left"));
+
+    for (let c = 0; c < 10; c++) {
+      const idx = rcToIdx(r, c);
+      const info = taken.get(idx);
+      const status = info?.status;
       const classes = status === "paid" ? "paid" : status === "pending" ? "pending" : "";
-      const d = cell(`#${idx+1}`, classes);
-      if (!status && board.is_open) {
-        d.style.cursor="pointer";
-        d.title="Click to reserve";
-        d.addEventListener("click", ()=> reserveSquare(board, idx));
+
+      // Text to show in square:
+      // - if reserved: the buyer's name (fallbacks to status text)
+      // - if free: simple square number
+      const label = info
+        ? (info.name?.trim() || (status === "paid" ? "Paid" : "Pending"))
+        : `#${idx + 1}`;
+
+      const d = cell(label, classes);
+
+      if (!info && board.is_open) {
+        d.style.cursor = "pointer";
+        d.title = "Click to reserve";
+        d.addEventListener("click", () => reserveSquare(board, idx));
       } else {
-        d.style.opacity=".7";
+        d.style.opacity = ".7";
+        if (info) {
+          // Helpful hover text
+          d.title = `${info.name || "Reserved"} • ${status}`;
+        }
       }
+
       els.grid.appendChild(d);
     }
   });
 }
+
 
 function buildVenmoUrl(handle, amount, note) {
   const clean = handle?.startsWith("@") ? handle.slice(1) : handle;
