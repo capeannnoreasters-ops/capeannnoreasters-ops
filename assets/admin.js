@@ -156,6 +156,40 @@ async function refreshSessionUI() {
     const session = data?.session;
     console.log("[Admin] refreshSessionUI session:", !!session, session?.user?.email);
 
+    // Wire up the Sign In / Sign Out buttons
+els.signInBtn?.addEventListener("click", async () => {
+  console.log("[Admin] Sign In clicked");
+  els.authMsg.textContent = "Signing in…";
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value;
+  if (!email || !password) { els.authMsg.textContent = "Enter email and password."; return; }
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    console.error("[Admin] signIn error:", error);
+    els.authMsg.textContent = error.message || "Sign-in failed.";
+    return;
+  }
+  els.authMsg.textContent = "Signed in.";
+  // auth listener below will call refreshSessionUI()
+});
+
+els.signOutBtn?.addEventListener("click", async () => {
+  console.log("[Admin] Sign Out clicked");
+  await sb.auth.signOut();
+  els.authMsg.textContent = "Signed out.";
+  // auth listener below will call refreshSessionUI()
+});
+
+// Listen for auth state changes and refresh the UI
+sb.auth.onAuthStateChange(async (evt, session) => {
+  console.log("[Admin] auth state changed:", evt, session?.user?.email);
+  await refreshSessionUI();
+});
+
+// Initial paint (must run once at load)
+refreshSessionUI();
+
     if (session?.user) {
       await showAdmin();             // <-- flip the UI immediately
       try {
