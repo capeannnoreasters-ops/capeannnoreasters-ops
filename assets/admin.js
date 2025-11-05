@@ -1,10 +1,10 @@
-// --- Set your Supabase public URL + anon key ---
+// --- Supabase config ---
 const SUPABASE_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";
 const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY_HERE";
-// -----------------------------------------------
+// -----------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false } });
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{persistSession:false} });
 
 const els = {
   slug: document.getElementById("slug"),
@@ -18,6 +18,18 @@ const els = {
   randomizeBtn: document.getElementById("randomizeBtn"),
   exportBtn: document.getElementById("exportBtn"),
   resTableBody: document.querySelector("#resTable tbody"),
+  // Create Board fields
+  cb: {
+    slug: document.getElementById("cb_slug"),
+    title: document.getElementById("cb_title"),
+    top: document.getElementById("cb_top"),
+    side: document.getElementById("cb_side"),
+    cost: document.getElementById("cb_cost"),
+    date: document.getElementById("cb_date"),
+    venmo: document.getElementById("cb_venmo"),
+    pwd: document.getElementById("cb_pwd"),
+    createBtn: document.getElementById("cb_create"),
+  },
 };
 
 let board = null;
@@ -57,20 +69,13 @@ async function refreshReservations(){
   for (const r of (data||[])) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${fmtDate(r.created_at)}</td>
       <td>${r.square_idx+1}</td>
       <td>${r.buyer_name||""}</td>
-      <td>${r.email||""}</td>
       <td>${r.status}</td>
-      <td>${fmtDate(r.paid_at)}</td>
-      <td>
-        ${r.status !== "paid" ? `<button data-id="${r.id}" class="markPaid">Mark Paid</button>` : ""}
-      </td>
+      <td>${r.status!=="paid" ? `<button data-id="${r.id}" class="markPaid">Mark Paid</button>` : ""}</td>
     `;
     els.resTableBody.appendChild(tr);
   }
-
-  // wire buttons
   document.querySelectorAll(".markPaid").forEach(btn=>{
     btn.addEventListener("click", async ()=>{
       const id = btn.getAttribute("data-id");
@@ -112,7 +117,7 @@ els.closeBtn.addEventListener("click", async ()=>{
 els.randomizeBtn.addEventListener("click", async ()=>{
   const token = els.token.value.trim(); if (!token) return alert("Enter admin password.");
   const { data, error } = await sb.rpc("admin_randomize_once", { p_board_slug: board.slug, p_token: token });
-  if (error || !data?.ok) { 
+  if (error || !data?.ok) {
     const reason = data?.reason || "failed";
     return alert("Randomize blocked: "+reason+" (needs 100/100 and not previously randomized)");
   }
@@ -136,6 +141,46 @@ els.exportBtn.addEventListener("click", async ()=>{
   document.body.appendChild(a); a.click(); a.remove();
 });
 
-// Optional: preload from URL like admin.html?slug=week1-scrimmage
+/* -------- Create Board -------- */
+els.cb.createBtn.addEventListener("click", async ()=>{
+  const p = {
+    slug: els.cb.slug.value.trim(),
+    title: els.cb.title.value.trim(),
+    team_top: els.cb.top.value.trim() || "Nor’easters",
+    team_side: els.cb.side.value.trim() || "Opponents",
+    cost: parseFloat(els.cb.cost.value || "20"),
+    date: els.cb.date.value ? els.cb.date.value : null,
+    venmo: els.cb.venmo.value.trim() || "@NoreastersFlagFB",
+    pwd: els.cb.pwd.value.trim(),
+  };
+  if (!p.slug || !p.title || !p.pwd) {
+    alert("Slug, Title and Admin password are required.");
+    return;
+  }
+  const payload = {
+    p_slug: p.slug,
+    p_title: p.title,
+    p_team_top: p.team_top,
+    p_team_side: p.team_side,
+    p_cost_per_square: p.cost,
+    p_game_date: p.date,
+    p_venmo_handle: p.venmo,
+    p_payout_mode: "percent",
+    p_payouts: { q1:5, q2:15, q3:5, q4:25 },
+    p_is_open: true,
+    p_admin_token: p.pwd
+  };
+  const { data, error } = await sb.rpc("admin_create_board", payload);
+  if (error || !data?.ok) {
+    alert("Create failed.");
+    return;
+  }
+  alert("Board created/updated.");
+  // Load it
+  els.slug.value = p.slug;
+  els.token.value = p.pwd;
+  await loadBoard(p.slug);
+});
+
 const qs = new URLSearchParams(location.search);
 const pre = qs.get("slug"); if (pre) { els.slug.value = pre; }
