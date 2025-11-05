@@ -2,25 +2,17 @@
 //  Nor’easters Admin Script
 // ==========================
 
-// --- Supabase Config (yours) ---
 const SUPABASE_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk";
-// --------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-  },
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
 });
-window.sb = sb; // for console debugging
+window.sb = sb;
 
-/* ---------- Element references (match admin.html) ---------- */
+/* ---------- Elements ---------- */
 const els = {
-  // Auth
   authCard: document.getElementById("authCard"),
   adminArea: document.getElementById("adminArea"),
   authEmail: document.getElementById("authEmail"),
@@ -29,20 +21,17 @@ const els = {
   signOutBtn: document.getElementById("signOutBtn"),
   authMsg: document.getElementById("authMsg"),
 
-  // Board selector & meta
   boardSelect: document.getElementById("boardSelect"),
   loadBtn: document.getElementById("loadBtn"),
   deleteBoardBtn: document.getElementById("deleteBoardBtn"),
   meta: document.getElementById("meta"),
 
-  // Controls
   stats: document.getElementById("stats"),
   openBtn: document.getElementById("openBtn"),
   closeBtn: document.getElementById("closeBtn"),
   randomizeBtn: document.getElementById("randomizeBtn"),
   exportBtn: document.getElementById("exportBtn"),
 
-  // Create/Update board
   cb: {
     slug:  document.getElementById("cb_slug"),
     title: document.getElementById("cb_title"),
@@ -54,7 +43,6 @@ const els = {
     createBtn: document.getElementById("cb_create"),
   },
 
-  // Payouts / lock / mode
   payouts: {
     q1:    document.getElementById("p_q1"),
     ht:    document.getElementById("p_ht"),
@@ -65,7 +53,6 @@ const els = {
     saveBtn: document.getElementById("saveSettingsBtn"),
   },
 
-  // Scores
   scores: {
     q1_top:    document.getElementById("a_q1_top"),
     q1_side:   document.getElementById("a_q1_side"),
@@ -78,68 +65,50 @@ const els = {
     save:      document.getElementById("saveScoresAdmin"),
   },
 
-  // Reservations
   resTableBody: document.getElementById("resTableBody"),
-
-  // Admins manager
   addAdminEmail: document.getElementById("newAdminEmail"),
   addAdminBtn: document.getElementById("addAdminBtn"),
 };
 
 let board = null;
 
-/* ---------- Helpers ---------- */
-const fmtDate = (s) => (s ? new Date(s).toLocaleString() : "");
-const toLocalDT = (iso) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const off = d.getTimezoneOffset();
-  const local = new Date(d.getTime() - off * 60000);
-  return local.toISOString().slice(0, 16); // yyyy-mm-ddThh:mm
-};
+/* ---------- UI helpers (belt + suspenders) ---------- */
+function show(el) { el.style.display = "block"; el.hidden = false; }
+function hide(el) { el.style.display = "none";  el.hidden = true;  }
 
-function renderPublicLink() {
-  if (!board?.slug) return;
-  const publicUrl = `${location.origin}/public.html?board=${encodeURIComponent(board.slug)}`;
-
-  const existing = document.getElementById("publicLink");
-  if (existing) existing.remove();
-
-  const wrap = document.createElement("div");
-  wrap.id = "publicLink";
-  wrap.style.margin = "6px 0 10px";
-  wrap.style.padding = "8px";
-  wrap.style.border = "1px solid #e2e8f0";
-  wrap.style.borderRadius = "10px";
-  wrap.style.background = "#f1f5f9";
-  wrap.innerHTML = `<strong>Public View:</strong> <a href="${publicUrl}" target="_blank" rel="noopener">${publicUrl}</a>`;
-  els.stats?.parentElement?.insertBefore(wrap, els.stats);
-}
-
-/* ---------- Auth UI ---------- */
 async function showAdmin() {
-  els.authCard.style.display = "none";
-  els.adminArea.style.display = "block";
+  console.log("[Admin] showAdmin()");
+  hide(els.authCard);
+  show(els.adminArea);
 }
 function showLogin(msg) {
-  els.adminArea.style.display = "none";
-  els.authCard.style.display = "block";
+  console.log("[Admin] showLogin()", msg || "");
+  hide(els.adminArea);
+  show(els.authCard);
   if (msg) els.authMsg.textContent = msg;
+}
+
+/* ---------- Session refresh with retries ---------- */
+async function getSessionWithRetry(retries = 5) {
+  for (let i = 0; i < retries; i++) {
+    const { data, error } = await sb.auth.getSession();
+    if (error) {
+      console.warn("[Admin] getSession error:", error);
+      await new Promise(r => setTimeout(r, 100 * (i + 1)));
+      continue;
+    }
+    if (data?.session?.user) return data.session;
+    await new Promise(r => setTimeout(r, 100 * (i + 1)));
+  }
+  return null;
 }
 
 async function refreshSessionUI() {
   try {
-    const { data, error } = await sb.auth.getSession();
-    if (error) {
-      console.error("[Admin] getSession error:", error);
-      showLogin(error.message || "Auth error.");
-      return;
-    }
-    const session = data?.session;
+    const session = await getSessionWithRetry();
     console.log("[Admin] refreshSessionUI session:", !!session, session?.user?.email);
-
     if (session?.user) {
-      await showAdmin(); // flip UI first (even if boards fail to load)
+      await showAdmin();                 // flip UI immediately
       try { await loadBoardsList(); }
       catch (e) {
         console.error("[Admin] loadBoardsList failed:", e);
@@ -154,7 +123,7 @@ async function refreshSessionUI() {
   }
 }
 
-/* ---------- Sign in/out + listener ---------- */
+/* ---------- Auth handlers ---------- */
 els.signInBtn?.addEventListener("click", async () => {
   console.log("[Admin] Sign In clicked");
   els.authMsg.textContent = "Signing in…";
@@ -166,32 +135,64 @@ els.signInBtn?.addEventListener("click", async () => {
   try {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     console.log("[Admin] signIn result:", { hasSession: !!data?.session, user: data?.user?.email, error });
-    if (error) {
-      els.authMsg.textContent = error.message || "Sign-in failed.";
-      return;
-    }
+    if (error) { els.authMsg.textContent = error.message || "Sign-in failed."; return; }
+
+    // Force UI flip immediately; session listener + retry will back it up.
+    await showAdmin();
     els.authMsg.textContent = "Signed in.";
+    setTimeout(refreshSessionUI, 50);
   } catch (e) {
     console.error("[Admin] signIn threw:", e);
     els.authMsg.textContent = String(e?.message || e);
   }
-
-  await refreshSessionUI(); // force UI refresh immediately
 });
 
 els.signOutBtn?.addEventListener("click", async () => {
   console.log("[Admin] Sign Out clicked");
   await sb.auth.signOut();
   els.authMsg.textContent = "Signed out.";
+  await refreshSessionUI();
 });
 
 sb.auth.onAuthStateChange(async (evt, session) => {
   console.log("[Admin] auth state changed:", evt, session?.user?.email);
+  // Always refresh; if signed in, UI stays shown; if out, UI hides.
   await refreshSessionUI();
+});
+
+// Also refresh when tab regains focus (helps mobile browsers)
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshSessionUI();
 });
 
 // Initial paint
 refreshSessionUI();
+
+/* ---------- Utility ---------- */
+const fmtDate = (s) => (s ? new Date(s).toLocaleString() : "");
+const toLocalDT = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off * 60000);
+  return local.toISOString().slice(0, 16);
+};
+
+function renderPublicLink() {
+  if (!board?.slug) return;
+  const publicUrl = `${location.origin}/public.html?board=${encodeURIComponent(board.slug)}`;
+  const existing = document.getElementById("publicLink");
+  if (existing) existing.remove();
+  const wrap = document.createElement("div");
+  wrap.id = "publicLink";
+  wrap.style.margin = "6px 0 10px";
+  wrap.style.padding = "8px";
+  wrap.style.border = "1px solid #e2e8f0";
+  wrap.style.borderRadius = "10px";
+  wrap.style.background = "#f1f5f9";
+  wrap.innerHTML = `<strong>Public View:</strong> <a href="${publicUrl}" target="_blank" rel="noopener">${publicUrl}</a>`;
+  els.stats?.parentElement?.insertBefore(wrap, els.stats);
+}
 
 /* ---------- Boards list & load ---------- */
 async function loadBoardsList() {
@@ -200,18 +201,16 @@ async function loadBoardsList() {
     .select("slug,title,team_top,team_side,game_date")
     .order("game_date", { ascending: false })
     .order("title");
-  if (error) {
-    console.error("[Admin] loadBoardsList error:", error);
-    alert("Failed to load boards list");
-    return;
-  }
+  if (error) { console.error("[Admin] loadBoardsList error:", error); alert("Failed to load boards list"); return; }
+
   els.boardSelect.innerHTML = "";
-  for (const b of data || []) {
+  (data || []).forEach(b => {
     const opt = document.createElement("option");
     opt.value = b.slug;
     opt.textContent = `${b.title} (${b.slug})`;
     els.boardSelect.appendChild(opt);
-  }
+  });
+
   if (data?.length) {
     await loadBoard(data[0].slug);
     els.boardSelect.value = data[0].slug;
@@ -225,8 +224,7 @@ async function loadBoardsList() {
 
 els.loadBtn?.addEventListener("click", async () => {
   const slug = els.boardSelect.value;
-  if (!slug) return;
-  await loadBoard(slug);
+  if (slug) await loadBoard(slug);
 });
 
 els.deleteBoardBtn?.addEventListener("click", async () => {
@@ -239,7 +237,7 @@ els.deleteBoardBtn?.addEventListener("click", async () => {
   await loadBoardsList();
 });
 
-/* ---------- Load a single board ---------- */
+/* ---------- Load one board ---------- */
 async function loadBoard(slug) {
   const { data, error } = await sb.from("boards").select("*").eq("slug", slug).maybeSingle();
   if (error || !data) { console.error("[Admin] loadBoard error:", error); alert("Board not found"); return; }
@@ -250,7 +248,6 @@ async function loadBoard(slug) {
     `$${board.cost_per_square}/sq • ${board.is_open ? "OPEN" : "CLOSED"}` +
     (board.randomized_at ? " • randomized " + fmtDate(board.randomized_at) : "");
 
-  // Fill payouts/mode/lock
   els.payouts.q1.value    = board.payouts?.q1 ?? (board.payout_mode === "fixed" ? 0 : 5);
   els.payouts.ht.value    = board.payouts?.ht ?? (board.payout_mode === "fixed" ? 0 : 15);
   els.payouts.q4.value    = board.payouts?.q4 ?? (board.payout_mode === "fixed" ? 0 : 5);
@@ -258,7 +255,6 @@ async function loadBoard(slug) {
   els.payouts.lockAt.value = toLocalDT(board.lock_at);
   els.payouts.mode.value   = board.payout_mode || "percent";
 
-  // Fill scores
   const s = board.scores || {};
   els.scores.q1_top.value     = s.q1?.top    ?? "";
   els.scores.q1_side.value    = s.q1?.side   ?? "";
@@ -425,7 +421,7 @@ els.payouts.saveBtn?.addEventListener("click", async () => {
     final: Number(els.payouts.final.value || 0),
   };
   const lockISO = els.payouts.lockAt.value ? new Date(els.payouts.lockAt.value).toISOString() : null;
-  const mode = els.payouts.mode.value; // 'percent' or 'fixed'
+  const mode = els.payouts.mode.value;
 
   const { data, error } = await sb.rpc("admin_update_board", {
     p_board_slug: board.slug,
