@@ -2,34 +2,39 @@
 //  Nor’easters Admin Script
 // ==========================
 
-// --- Supabase Config ---
 const SUPABASE_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk";
-// -----------------------
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk"; // keep your existing anon key
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-/* ---------- Element references ---------- */
 const els = {
-  // Load/auth
-  slug: document.getElementById("slug"),
-  token: document.getElementById("adminToken"),
+  // auth
+  authCard: document.getElementById("authCard"),
+  adminArea: document.getElementById("adminArea"),
+  authEmail: document.getElementById("authEmail"),
+  authPassword: document.getElementById("authPassword"),
+  signInBtn: document.getElementById("signInBtn"),
+  signOutBtn: document.getElementById("signOutBtn"),
+  authMsg: document.getElementById("authMsg"),
+
+  // board selector + meta
+  boardSelect: document.getElementById("boardSelect"),
   loadBtn: document.getElementById("loadBtn"),
-  setPwdBtn: document.getElementById("setPwdBtn"),
+  deleteBoardBtn: document.getElementById("deleteBoardBtn"),
   meta: document.getElementById("meta"),
 
-  // Controls (Board Controls card)
+  // controls
   stats: document.getElementById("stats"),
   openBtn: document.getElementById("openBtn"),
   closeBtn: document.getElementById("closeBtn"),
   randomizeBtn: document.getElementById("randomizeBtn"),
   exportBtn: document.getElementById("exportBtn"),
 
-  // Reservations table
+  // reservations
   resTableBody: document.getElementById("resTableBody"),
 
-  // Create Board form
+  // create/update board
   cb: {
     slug:  document.getElementById("cb_slug"),
     title: document.getElementById("cb_title"),
@@ -38,11 +43,10 @@ const els = {
     cost:  document.getElementById("cb_cost"),
     date:  document.getElementById("cb_date"),
     venmo: document.getElementById("cb_venmo"),
-    pwd:   document.getElementById("cb_pwd"),
     createBtn: document.getElementById("cb_create"),
   },
 
-  // Payouts, mode & lock
+  // payouts/mode/lock
   payouts: {
     q1:    document.getElementById("p_q1"),
     ht:    document.getElementById("p_ht"),
@@ -53,7 +57,7 @@ const els = {
     saveBtn: document.getElementById("saveSettingsBtn"),
   },
 
-  // Official scores
+  // scores
   scores: {
     q1_top:    document.getElementById("a_q1_top"),
     q1_side:   document.getElementById("a_q1_side"),
@@ -65,6 +69,9 @@ const els = {
     final_side:document.getElementById("a_final_side"),
     save:      document.getElementById("saveScoresAdmin"),
   },
+
+  addAdminEmail: document.getElementById("newAdminEmail"),
+  addAdminBtn: document.getElementById("addAdminBtn"),
 };
 
 let board = null;
@@ -76,19 +83,16 @@ const toLocalDT = (iso) => {
   const d = new Date(iso);
   const off = d.getTimezoneOffset();
   const local = new Date(d.getTime() - off * 60000);
-  return local.toISOString().slice(0, 16); // yyyy-mm-ddThh:mm
+  return local.toISOString().slice(0, 16);
 };
 
-/** Renders a “Public View” link inside the Board Controls card */
 function renderPublicLink() {
   if (!board || !board.slug) return;
   const publicUrl = `${location.origin}/public.html?board=${encodeURIComponent(board.slug)}`;
 
-  // Remove any previous link block
   const old = document.getElementById("publicLink");
   if (old) old.remove();
 
-  // Create a styled block and insert it above the stats pills in the same card
   const div = document.createElement("div");
   div.id = "publicLink";
   div.style.margin = "6px 0 10px";
@@ -100,25 +104,97 @@ function renderPublicLink() {
     <strong>Public View:</strong>
     <a href="${publicUrl}" target="_blank" rel="noopener noreferrer">${publicUrl}</a>
   `;
-
-  // Insert right before the stats element in the Board Controls card
   els.stats.parentElement.insertBefore(div, els.stats);
 }
 
-/* ---------- Load & refresh ---------- */
+/* ---------- Auth ---------- */
+async function refreshSessionUI() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (user) {
+    els.authCard.style.display = "none";
+    els.adminArea.style.display = "";
+    await loadBoardsList();
+  } else {
+    els.adminArea.style.display = "none";
+    els.authCard.style.display = "";
+  }
+}
+
+els.signInBtn.addEventListener("click", async () => {
+  els.authMsg.textContent = "";
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value;
+  if (!email || !password) { els.authMsg.textContent = "Enter email and password."; return; }
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) { els.authMsg.textContent = error.message; return; }
+
+  await refreshSessionUI();
+});
+
+els.signOutBtn.addEventListener("click", async () => {
+  await sb.auth.signOut();
+  board = null;
+  els.meta.textContent = "";
+  els.resTableBody.innerHTML = "";
+  els.stats.innerHTML = "";
+  await refreshSessionUI();
+});
+
+/* ---------- Boards list & load ---------- */
+async function loadBoardsList() {
+  const { data, error } = await sb.from("boards")
+    .select("slug,title,team_top,team_side,game_date")
+    .order("game_date", { ascending: false })
+    .order("title");
+  if (error) { alert("Failed to load boards"); return; }
+
+  els.boardSelect.innerHTML = "";
+  for (const b of data || []) {
+    const opt = document.createElement("option");
+    opt.value = b.slug;
+    opt.textContent = `${b.title} (${b.slug})`;
+    els.boardSelect.appendChild(opt);
+  }
+  // auto-load first board if available
+  if (data && data.length) {
+    await loadBoard(data[0].slug);
+    els.boardSelect.value = data[0].slug;
+  } else {
+    board = null;
+    els.meta.textContent = "No boards yet.";
+  }
+}
+
+els.loadBtn.addEventListener("click", async () => {
+  const slug = els.boardSelect.value;
+  if (!slug) return;
+  await loadBoard(slug);
+});
+
+els.deleteBoardBtn.addEventListener("click", async () => {
+  const slug = els.boardSelect.value;
+  if (!slug) return;
+  if (!confirm(`Delete board "${slug}" and ALL its reservations? This cannot be undone.`)) return;
+  const { data, error } = await sb.rpc("admin_delete_board", { p_board_slug: slug });
+  if (error || !data?.ok) { alert("Delete failed."); return; }
+  alert("Board deleted.");
+  await loadBoardsList();
+});
+
+/* ---------- Load a board ---------- */
 async function loadBoard(slug) {
   const { data, error } = await sb.from("boards").select("*").eq("slug", slug).maybeSingle();
-  if (error || !data) throw new Error("Board not found");
+  if (error || !data) { alert("Board not found"); return; }
 
   board = data;
 
-  // Meta header
   els.meta.textContent =
     `${board.title} • ${board.team_top} vs ${board.team_side} • ` +
     `$${board.cost_per_square}/sq • ${board.is_open ? "OPEN" : "CLOSED"}` +
     (board.randomized_at ? " • randomized " + fmtDate(board.randomized_at) : "");
 
-  // Fill payouts + lock + mode
+  // payouts/mode/lock
   els.payouts.q1.value    = board.payouts?.q1 ?? (board.payout_mode === "fixed" ? 0 : 5);
   els.payouts.ht.value    = board.payouts?.ht ?? (board.payout_mode === "fixed" ? 0 : 15);
   els.payouts.q4.value    = board.payouts?.q4 ?? (board.payout_mode === "fixed" ? 0 : 5);
@@ -126,24 +202,18 @@ async function loadBoard(slug) {
   els.payouts.lockAt.value = toLocalDT(board.lock_at);
   els.payouts.mode.value   = board.payout_mode || "percent";
 
-  // Fill Official Scores if present
-  if (board.scores) {
-    els.scores.q1_top.value     = board.scores.q1?.top    ?? "";
-    els.scores.q1_side.value    = board.scores.q1?.side   ?? "";
-    els.scores.ht_top.value     = board.scores.ht?.top    ?? "";
-    els.scores.ht_side.value    = board.scores.ht?.side   ?? "";
-    els.scores.q4_top.value     = board.scores.q4?.top    ?? "";
-    els.scores.q4_side.value    = board.scores.q4?.side   ?? "";
-    els.scores.final_top.value  = board.scores.final?.top ?? "";
-    els.scores.final_side.value = board.scores.final?.side?? "";
-  } else {
-    ["q1_top","q1_side","ht_top","ht_side","q4_top","q4_side","final_top","final_side"]
-      .forEach(k => els.scores[k].value = "");
-  }
+  // scores
+  const s = board.scores || {};
+  els.scores.q1_top.value     = s.q1?.top    ?? "";
+  els.scores.q1_side.value    = s.q1?.side   ?? "";
+  els.scores.ht_top.value     = s.ht?.top    ?? "";
+  els.scores.ht_side.value    = s.ht?.side   ?? "";
+  els.scores.q4_top.value     = s.q4?.top    ?? "";
+  els.scores.q4_side.value    = s.q4?.side   ?? "";
+  els.scores.final_top.value  = s.final?.top ?? "";
+  els.scores.final_side.value = s.final?.side?? "";
 
-  // 👉 Add the public link right in the Board Controls card
   renderPublicLink();
-
   await refreshStats();
   await refreshReservations();
 }
@@ -192,11 +262,8 @@ async function refreshReservations() {
   document.querySelectorAll(".markPaid").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-id");
-      const token = els.token.value.trim();
-      if (!token) { alert("Enter admin password first."); return; }
       const { data: resp, error } = await sb.rpc("admin_mark_paid", {
         p_board_slug: board.slug,
-        p_token: token,
         p_reservation_id: id,
       });
       if (error || !resp?.ok) { alert("Not authorized or failed."); return; }
@@ -206,34 +273,11 @@ async function refreshReservations() {
   });
 }
 
-/* ---------- Core admin actions ---------- */
-// Load
-els.loadBtn.addEventListener("click", async () => {
-  try { await loadBoard(els.slug.value.trim()); }
-  catch (e) { alert(e.message); }
-});
-
-// Set/Change password
-els.setPwdBtn.addEventListener("click", async () => {
-  const slug = els.slug.value.trim();
-  const token = els.token.value.trim();
-  if (!slug || !token) { alert("Enter slug and a new admin password."); return; }
-  const { data, error } = await sb.rpc("admin_set_password", {
-    p_board_slug: slug,
-    p_new_token: token,
-  });
-  if (error || !data?.ok) { alert("Failed to set password."); return; }
-  alert("Admin password set.");
-});
-
-// Open / Close
+/* ---------- Admin actions ---------- */
 els.openBtn.addEventListener("click", async () => {
-  if (!board) return alert("Load a board first.");
-  const token = els.token.value.trim();
-  if (!token) return alert("Enter admin password.");
+  if (!board) return;
   const { data, error } = await sb.rpc("admin_set_open", {
     p_board_slug: board.slug,
-    p_token: token,
     p_is_open: true,
   });
   if (error || !data?.ok) return alert("Not authorized.");
@@ -241,29 +285,19 @@ els.openBtn.addEventListener("click", async () => {
 });
 
 els.closeBtn.addEventListener("click", async () => {
-  if (!board) return alert("Load a board first.");
-  const token = els.token.value.trim();
-  if (!token) return alert("Enter admin password.");
+  if (!board) return;
   const { data, error } = await sb.rpc("admin_set_open", {
     p_board_slug: board.slug,
-    p_token: token,
     p_is_open: false,
   });
   if (error || !data?.ok) return alert("Not authorized.");
   await loadBoard(board.slug);
 });
 
-// Randomize (once) — with confirmation
 els.randomizeBtn.addEventListener("click", async () => {
-  if (!board) return alert("Load a board first.");
-  const token = els.token.value.trim();
-  if (!token) return alert("Enter admin password.");
+  if (!board) return;
   if (!confirm("Randomize header numbers now? This can only be done once and cannot be undone.")) return;
-
-  const { data, error } = await sb.rpc("admin_randomize_once", {
-    p_board_slug: board.slug,
-    p_token: token,
-  });
+  const { data, error } = await sb.rpc("admin_randomize_once", { p_board_slug: board.slug });
   if (error || !data?.ok) {
     const reason = data?.reason || "failed";
     return alert("Randomize blocked: " + reason + " (needs 100/100 and not previously randomized)");
@@ -271,9 +305,8 @@ els.randomizeBtn.addEventListener("click", async () => {
   await loadBoard(board.slug);
 });
 
-// Export CSV
 els.exportBtn.addEventListener("click", async () => {
-  if (!board) return alert("Load a board first.");
+  if (!board) return;
   const { data, error } = await sb
     .from("reservations")
     .select("square_idx,buyer_name,email,status,paid_at,created_at")
@@ -306,9 +339,8 @@ els.cb.createBtn.addEventListener("click", async () => {
     cost: parseFloat(els.cb.cost.value || "20"),
     date: els.cb.date.value ? els.cb.date.value : null,
     venmo: els.cb.venmo.value.trim() || "@NoreastersFlagFB",
-    pwd: els.cb.pwd.value.trim(),
   };
-  if (!p.slug || !p.title || !p.pwd) { alert("Slug, Title and Admin password are required."); return; }
+  if (!p.slug || !p.title) { alert("Slug and Title are required."); return; }
 
   const payload = {
     p_slug: p.slug,
@@ -318,25 +350,23 @@ els.cb.createBtn.addEventListener("click", async () => {
     p_cost_per_square: p.cost,
     p_game_date: p.date,
     p_venmo_handle: p.venmo,
-    p_payout_mode: "percent",                     // default; can change below
+    p_payout_mode: "percent",
     p_payouts: { q1: 5, ht: 15, q4: 5, final: 25 },
     p_is_open: true,
-    p_admin_token: p.pwd,
   };
 
   const { data, error } = await sb.rpc("admin_create_board", payload);
   if (error || !data?.ok) { console.error(error); alert("Create failed."); return; }
 
   alert("Board created/updated.");
-  els.slug.value = p.slug;
-  els.token.value = p.pwd;
+  await loadBoardsList();
+  els.boardSelect.value = p.slug;
   await loadBoard(p.slug);
 });
 
 /* ---------- Save payouts/mode/lock ---------- */
 els.payouts.saveBtn.addEventListener("click", async () => {
-  if (!board) return alert("Load a board first.");
-  const token = els.token.value.trim(); if (!token) return alert("Enter admin password.");
+  if (!board) return;
 
   const payouts = {
     q1: Number(els.payouts.q1.value || 0),
@@ -345,11 +375,10 @@ els.payouts.saveBtn.addEventListener("click", async () => {
     final: Number(els.payouts.final.value || 0),
   };
   const lockISO = els.payouts.lockAt.value ? new Date(els.payouts.lockAt.value).toISOString() : null;
-  const mode = els.payouts.mode.value; // 'percent' or 'fixed'
+  const mode = els.payouts.mode.value;
 
   const { data, error } = await sb.rpc("admin_update_board", {
     p_board_slug: board.slug,
-    p_token: token,
     p_payouts: payouts,
     p_lock_at: lockISO,
     p_payout_mode: mode,
@@ -361,8 +390,7 @@ els.payouts.saveBtn.addEventListener("click", async () => {
 
 /* ---------- Save Official Scores ---------- */
 els.scores.save.addEventListener("click", async () => {
-  if (!board) return alert("Load a board first.");
-  const token = els.token.value.trim(); if (!token) return alert("Enter admin password.");
+  if (!board) return;
 
   const scores = {
     q1:    { top: els.scores.q1_top.value,    side: els.scores.q1_side.value },
@@ -373,10 +401,24 @@ els.scores.save.addEventListener("click", async () => {
 
   const { data, error } = await sb.rpc("admin_set_scores", {
     p_board_slug: board.slug,
-    p_token: token,
     p_scores: scores,
   });
-  if (error || !data?.ok) { alert("Save failed (check password)."); return; }
+  if (error || !data?.ok) { alert("Save failed."); return; }
   alert("Scores saved.");
   await loadBoard(board.slug);
 });
+
+/* ---------- Add Admin ---------- */
+els.addAdminBtn.addEventListener("click", async () => {
+  const email = els.addAdminEmail.value.trim();
+  if (!email) return alert("Enter an email.");
+  const { data, error } = await sb.rpc("add_admin_by_email", { p_email: email });
+  if (error || !data?.ok) { alert("Add admin failed. Make sure the user exists in Auth."); return; }
+  alert("Admin added.");
+});
+
+/* ---------- Init ---------- */
+sb.auth.onAuthStateChange(async () => {
+  await refreshSessionUI();
+});
+await refreshSessionUI();
