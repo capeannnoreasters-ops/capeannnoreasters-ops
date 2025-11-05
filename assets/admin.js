@@ -134,18 +134,19 @@ els.signInBtn?.addEventListener("click", async () => {
 
   try {
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    console.log("[Admin] signIn result:", { hasSession: !!data?.session, user: data?.user?.email, error });
-    if (error) { els.authMsg.textContent = error.message || "Sign-in failed."; return; }
+console.log("[Admin] signIn result:", { hasSession: !!data?.session, user: data?.user?.email, error });
+if (error) { els.authMsg.textContent = error.message || "Sign-in failed."; return; }
 
-    // Force UI flip immediately; session listener + retry will back it up.
-    await showAdmin();
-    els.authMsg.textContent = "Signed in.";
-    setTimeout(refreshSessionUI, 50);
-  } catch (e) {
-    console.error("[Admin] signIn threw:", e);
-    els.authMsg.textContent = String(e?.message || e);
-  }
+// FORCE the UI flip immediately, regardless of listener timing
+await showAdmin();
+els.authMsg.textContent = "Signed in.";
+
+// Start boards load, but don't block the flip
+loadBoardsList().catch(e => {
+  console.error("[Admin] loadBoardsList failed post-login:", e);
+  els.meta.textContent = "Boards failed to load. Check console.";
 });
+
 
 els.signOutBtn?.addEventListener("click", async () => {
   console.log("[Admin] Sign Out clicked");
@@ -156,9 +157,23 @@ els.signOutBtn?.addEventListener("click", async () => {
 
 sb.auth.onAuthStateChange(async (evt, session) => {
   console.log("[Admin] auth state changed:", evt, session?.user?.email);
-  // Always refresh; if signed in, UI stays shown; if out, UI hides.
-  await refreshSessionUI();
+
+  // If we're signed in, flip the UI RIGHT NOW (no waiting on anything else).
+  if (session?.user) {
+    await showAdmin();
+    try {
+      await loadBoardsList();
+    } catch (e) {
+      console.error("[Admin] loadBoardsList failed after SIGNED_IN:", e);
+      els.meta.textContent = "Boards failed to load. Check console.";
+    }
+    return; // don't fall through
+  }
+
+  // Signed out -> show login
+  showLogin();
 });
+
 
 // Also refresh when tab regains focus (helps mobile browsers)
 document.addEventListener("visibilitychange", () => {
