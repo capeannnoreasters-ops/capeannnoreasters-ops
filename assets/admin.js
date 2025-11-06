@@ -1,23 +1,3 @@
-// ---- CORS proxy shim (put this at the top, before createClient) ----
-const SUPABASE_URL  = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";   // your real project
-const PROXY_URL     = "https://noreasters-cors.reilley-kevin.workers.dev"; // your Worker
-
-const _fetch = window.fetch.bind(window);
-window.fetch = (input, init) => {
-  try {
-    const url = new URL(typeof input === "string" ? input : input.url);
-    // If the request is going to Supabase, route it through the Worker (/sb prefix)
-    if (url.origin === SUPABASE_URL) {
-      const proxied = url.href.replace(SUPABASE_URL, PROXY_URL + "/sb");
-      const next = (typeof input === "string") ? proxied : new Request(proxied, input);
-      return _fetch(next, init);
-    }
-  } catch (_) {}
-  return _fetch(input, init);
-};
-// ---- end shim ----
-
-
 // ==========================
 //  Nor’easters Admin Script
 // ==========================
@@ -26,6 +6,25 @@ window.fetch = (input, init) => {
 const SUPABASE_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk";
 // -----------------------
+
+// ---- CORS proxy shim (put at very top; before createClient/imports) ----
+const SB_PROJECT_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";          // your Supabase URL
+const PROXY_URL      = "https://noreasters-cors.reilley-kevin.workers.dev";  // your Worker URL
+
+const __origFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+  try {
+    const u = new URL(typeof input === "string" ? input : input.url);
+    if (u.origin === SB_PROJECT_URL) {
+      const proxied = u.href.replace(SB_PROJECT_URL, PROXY_URL + "/sb");
+      const next = (typeof input === "string") ? proxied : new Request(proxied, input);
+      return __origFetch(next, init);
+    }
+  } catch (_) {}
+  return __origFetch(input, init);
+};
+// ---- end shim ----
+
 
 // --- Supabase Client ---
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
