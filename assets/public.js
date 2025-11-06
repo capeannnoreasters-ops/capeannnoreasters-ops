@@ -3,6 +3,25 @@ const SUPABASE_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk";
 // -----------------------------------------
 
+// ---- CORS proxy shim (put at very top; before createClient/imports) ----
+const SB_PROJECT_URL = "https://jpzxvnqjsixvnwzjfxuh.supabase.co";          // your Supabase URL
+const PROXY_URL      = "https://noreasters-cors.reilley-kevin.workers.dev";  // your Worker URL
+
+const __origFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+  try {
+    const u = new URL(typeof input === "string" ? input : input.url);
+    if (u.origin === SB_PROJECT_URL) {
+      const proxied = u.href.replace(SB_PROJECT_URL, PROXY_URL + "/sb");
+      const next = (typeof input === "string") ? proxied : new Request(proxied, input);
+      return __origFetch(next, init);
+    }
+  } catch (_) {}
+  return __origFetch(input, init);
+};
+// ---- end shim ----
+
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession:false } });
 
