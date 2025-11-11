@@ -188,32 +188,71 @@ async function loadBoardsList() {
   if (!sel) return;
   sel.innerHTML = '<option value="">Loading…</option>';
 
+  // tiny helper
+  const withTimeout = (p, ms = 8000) =>
+    Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
+    ]);
+
   try {
-    const { data, error } = await sb
-      .from("boards")
-      .select("slug,title,game_date")
-      .order("game_date", { ascending: false, nullsFirst: true })
-      .order("title", { ascending: true });
+    // 1) Try normal Supabase client (through your proxy via global.fetch override)
+    const primary = withTimeout(
+      sb.from("boards")
+        .select("slug,title,game_date")
+        .order("game_date", { ascending: false, nullsFirst: true })
+        .order("title", { ascending: true })
+    );
 
-    console.log("[Admin] loadBoardsList result:", { data, error });
-
-    if (error) {
-      sel.innerHTML = `<option value="">Error: ${error.message || "failed"}</option>`;
-      return;
+    let data, error;
+    try {
+      ({ data, error } = await primary);
+    } catch (e) {
+      error = e;
     }
+
+    if ((!data || error) && !(data && Array.isArray(data))) {
+      // 2) Fallback: direct fetch to your Worker (bypass SDK entirely)
+      const { data: sess } = await sb.auth.getSession();
+      const jwt = sess?.session?.access_token || SUPABASE_ANON_KEY; // use anon if no session (should have session here)
+
+      const url =
+        `${PROXY_URL}/sb/rest/v1/boards` +
+        `?select=slug,title,game_date` +
+        `&order=game_date.desc.nullslast&order=title.asc`;
+
+      const res = await withTimeout(
+        fetch(url, {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${jwt}`,
+            Prefer: "count=exact",
+          },
+        })
+      );
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Fallback fetch ${res.status}: ${txt || res.statusText}`);
+      }
+      data = await res.json();
+    }
+
     if (!data || data.length === 0) {
       sel.innerHTML = '<option value="">— No boards yet —</option>';
       return;
     }
 
     sel.innerHTML = data
-      .map(b => `<option value="${b.slug}">${b.title || b.slug}</option>`)
+      .map((b) => `<option value="${b.slug}">${b.title || b.slug}</option>`)
       .join("");
+
   } catch (e) {
-    console.error("[Admin] loadBoardsList threw:", e);
-    sel.innerHTML = `<option value="">Error: ${String(e?.message || e)}</option>`;
+    console.error("[Admin] loadBoardsList failed:", e);
+    sel.innerHTML = `<option value="">Error loading boards: ${String(e.message || e)}</option>`;
   }
 }
+
 
 async function loadBoard(slug) {
   const { data, error } = await sb.from("boards").select("*").eq("slug", slug).maybeSingle();
