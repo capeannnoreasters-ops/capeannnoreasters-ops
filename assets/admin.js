@@ -24,10 +24,14 @@ const SUPABASE_URL = SB_PROJECT_URL;
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impwenh2bnFqc2l4dm53empmeHVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIyODE5NTEsImV4cCI6MjA3Nzg1Nzk1MX0.hyDskGwIwNv9MNBHkuX_DrIpnUHBouK5hgPZKXGOEEk";
 
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  global: { fetch: sbFetch }, // <- critical so all supabase calls use proxy
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-});
+- // const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+- //   global: { fetch: sbFetch },
+- //   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+- // });
++ const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
++   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
++ });
+
 window.sb = sb; // handy for console testing
 
 /* ---------- Element references ---------- */
@@ -188,55 +192,30 @@ async function loadBoardsList() {
   if (!sel) return;
   sel.innerHTML = '<option value="">Loading…</option>';
 
-  // tiny helper
-  const withTimeout = (p, ms = 8000) =>
-    Promise.race([
-      p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error("Request timed out")), ms)),
-    ]);
-
   try {
-    // 1) Try normal Supabase client (through your proxy via global.fetch override)
-    const primary = withTimeout(
-      sb.from("boards")
-        .select("slug,title,game_date")
-        .order("game_date", { ascending: false, nullsFirst: true })
-        .order("title", { ascending: true })
-    );
+    // Call Supabase REST directly (bypass Worker/proxy)
+    const { data: s } = await sb.auth.getSession();
+    const jwt = s?.session?.access_token || SUPABASE_ANON_KEY;
 
-    let data, error;
-    try {
-      ({ data, error } = await primary);
-    } catch (e) {
-      error = e;
+    const url =
+      `${SUPABASE_URL}/rest/v1/boards` +
+      `?select=slug,title,game_date` +
+      `&order=game_date.desc.nullslast&order=title.asc`;
+
+    const res = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${jwt}`,
+        Prefer: "count=exact",
+      },
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Direct fetch ${res.status}: ${txt || res.statusText}`);
     }
 
-    if ((!data || error) && !(data && Array.isArray(data))) {
-      // 2) Fallback: direct fetch to your Worker (bypass SDK entirely)
-      const { data: sess } = await sb.auth.getSession();
-      const jwt = sess?.session?.access_token || SUPABASE_ANON_KEY; // use anon if no session (should have session here)
-
-      const url =
-        `${PROXY_URL}/sb/rest/v1/boards` +
-        `?select=slug,title,game_date` +
-        `&order=game_date.desc.nullslast&order=title.asc`;
-
-      const res = await withTimeout(
-        fetch(url, {
-          headers: {
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${jwt}`,
-            Prefer: "count=exact",
-          },
-        })
-      );
-
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`Fallback fetch ${res.status}: ${txt || res.statusText}`);
-      }
-      data = await res.json();
-    }
+    const data = await res.json();
 
     if (!data || data.length === 0) {
       sel.innerHTML = '<option value="">— No boards yet —</option>';
@@ -244,14 +223,15 @@ async function loadBoardsList() {
     }
 
     sel.innerHTML = data
-      .map((b) => `<option value="${b.slug}">${b.title || b.slug}</option>`)
+      .map(b => `<option value="${b.slug}">${b.title || b.slug}</option>`)
       .join("");
 
   } catch (e) {
     console.error("[Admin] loadBoardsList failed:", e);
-    sel.innerHTML = `<option value="">Error loading boards: ${String(e.message || e)}</option>`;
+    sel.innerHTML = `<option value="">Error: ${String(e?.message || e)}</option>`;
   }
 }
+
 
 
 async function loadBoard(slug) {
